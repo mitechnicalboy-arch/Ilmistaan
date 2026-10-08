@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "Student or Administrator user profile",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "isSuspended": { "type": "boolean" },
+        "timezone": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "email", "name", "role", "isSuspended"]
+    },
+    "semester": {
+      "title": "Semester",
+      "description": "Academic semester term record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 64 },
+        "academicYear": { "type": "string", "maxLength": 32 },
+        "startDate": { "type": "string", "maxLength": 32 },
+        "endDate": { "type": "string", "maxLength": 32 },
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name", "academicYear", "status"]
+    },
+    "course": {
+      "title": "Course",
+      "description": "University course and subject registry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "semesterId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 32 },
+        "instructor": { "type": "string", "maxLength": 128 },
+        "room": { "type": "string", "maxLength": 64 },
+        "creditHours": { "type": "number" },
+        "syllabusSummary": { "type": "string", "maxLength": 1024 },
+        "isArchived": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "semesterId", "name", "code", "creditHours"]
+    },
+    "assignment": {
+      "title": "Assignment",
+      "description": "Coursework deliverable and problem set",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "semesterId": { "type": "string", "maxLength": 128 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 2048 },
+        "dateAssigned": { "type": "string", "maxLength": 32 },
+        "deadline": { "type": "string", "maxLength": 32 },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "completed"] },
+        "resourceLink": { "type": "string", "maxLength": 512 },
+        "isPinned": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "semesterId", "courseId", "title", "deadline", "priority", "status"]
+    },
+    "lecture": {
+      "title": "Lecture",
+      "description": "Delivered lecture record and curriculum note",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "semesterId": { "type": "string", "maxLength": 128 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "lectureNumber": { "type": "number" },
+        "date": { "type": "string", "maxLength": 32 },
+        "instructor": { "type": "string", "maxLength": 128 },
+        "topicsCovered": { "type": "string", "maxLength": 512 },
+        "conceptsSummary": { "type": "string", "maxLength": 4096 },
+        "homeworkTasks": { "type": "string", "maxLength": 1024 },
+        "slidesUrl": { "type": "string", "maxLength": 512 },
+        "isPinned": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "semesterId", "courseId", "lectureNumber", "date", "topicsCovered"]
+    },
+    "quiz": {
+      "title": "Quiz",
+      "description": "Examination and test preparation record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "semesterId": { "type": "string", "maxLength": 128 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 32 },
+        "venue": { "type": "string", "maxLength": 64 },
+        "syllabusTopics": { "type": "string", "maxLength": 1024 },
+        "totalMarks": { "type": "number" },
+        "obtainedMarks": { "type": "number" },
+        "status": { "type": "string", "enum": ["upcoming", "completed", "missed"] },
+        "isPinned": { "type": "boolean" },
+        "isDeleted": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "semesterId", "courseId", "title", "date", "totalMarks", "status"]
+    },
+    "chatMessage": {
+      "title": "ChatMessage",
+      "description": "Multi-turn AI Academic Tutor conversation record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "model", "system"] },
+        "persona": { "type": "string", "maxLength": 64 },
+        "model": { "type": "string", "maxLength": 64 },
+        "content": { "type": "string", "maxLength": 8192 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "role", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profile with role, suspension status, and account settings"
+    },
+    "/users/{userId}/semesters/{semesterId}": {
+      "schema": "semester",
+      "description": "Student semesters"
+    },
+    "/users/{userId}/courses/{courseId}": {
+      "schema": "course",
+      "description": "Student registered courses"
+    },
+    "/users/{userId}/assignments/{assignmentId}": {
+      "schema": "assignment",
+      "description": "Student assignments and deliverables"
+    },
+    "/users/{userId}/lectures/{lectureId}": {
+      "schema": "lecture",
+      "description": "Student lecture notes and curriculum tracker"
+    },
+    "/users/{userId}/quizzes/{quizId}": {
+      "schema": "quiz",
+      "description": "Student exams, quizzes, and score records"
+    },
+    "/users/{userId}/chatMessages/{messageId}": {
+      "schema": "chatMessage",
+      "description": "Student AI tutor chat messages"
+    }
+  }
+}
