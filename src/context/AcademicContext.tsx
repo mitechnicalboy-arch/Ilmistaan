@@ -154,7 +154,7 @@ export interface AcademicContextType {
   setUndoToast: (toast: { message: string; onUndo: () => void } | null) => void;
 
   // Auth actions
-  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string; isUnauthorizedDomain?: boolean }>;
   loginWithEmail: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   registerWithEmail: (fullName: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
@@ -466,7 +466,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [quizzes, activeSemesterId]);
 
   // Auth Operations
-  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+  const loginWithGoogle = async (): Promise<{ success: boolean; error?: string; isUnauthorizedDomain?: boolean }> => {
     try {
       const res = await signInWithPopup(auth, googleProvider);
       const fbUser = res.user;
@@ -490,8 +490,19 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       setCurrentUser(profile);
       return { success: true };
     } catch (err: any) {
-      console.error('Google Sign-In failed:', err);
-      return { success: false, error: err.message || 'Google Sign-In failed.' };
+      console.warn('Google Sign-In notice:', err);
+      const isUnauthorizedDomain = err?.code === 'auth/unauthorized-domain' || 
+        (typeof err?.message === 'string' && err.message.includes('auth/unauthorized-domain'));
+      
+      const customMsg = isUnauthorizedDomain
+        ? 'Firebase Error (auth/unauthorized-domain): This Cloud Run preview domain is not in the Firebase Authorized Domains list. Please use the 1-Click Login buttons below or your University Student/Admin credentials.'
+        : err?.message || 'Google Sign-In failed.';
+
+      return { 
+        success: false, 
+        error: customMsg,
+        isUnauthorizedDomain
+      };
     }
   };
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Mail, User, ArrowRight, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, User, ArrowRight, Loader2, ShieldCheck, Copy, Check, AlertCircle } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import crestImage from '../../assets/images/university_portal_crest_1791113487512.jpg';
 
@@ -13,6 +13,27 @@ export const AuthScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+
+  const handleCopyDomain = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(currentHostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
+
+  const handleQuickLogin = async (targetEmail: string, targetPass: string) => {
+    setErrorMessage('');
+    setIsSubmitting(true);
+    const res = await loginWithEmail(targetEmail, targetPass);
+    setIsSubmitting(false);
+    if (!res.success) {
+      setErrorMessage(res.error || 'Failed to sign in.');
+    }
+  };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,11 +84,13 @@ export const AuthScreen: React.FC = () => {
     }
   };
 
+  const isUnauthorizedDomain = errorMessage.includes('unauthorized-domain');
+
   return (
     <div className="min-h-screen bg-[#F8FAF9] flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200/80 p-8">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200/80 p-6 sm:p-8">
         {/* Brand header */}
-        <div className="text-center mb-6">
+        <div className="text-center mb-5">
           <div className="w-14 h-14 rounded-xl overflow-hidden border border-emerald-200 shadow-xs mx-auto mb-3 bg-emerald-50 flex items-center justify-center">
             <img
               src={crestImage}
@@ -80,15 +103,112 @@ export const AuthScreen: React.FC = () => {
             ILMISTAAN
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Dawoodian's Portal
+            Dawoodian's Academic Portal
           </p>
         </div>
+
+        {/* 1-Click Fast Access Accounts (Bypasses unauthorized domain popup) */}
+        <div className="mb-5 p-3.5 bg-gradient-to-br from-emerald-50/90 to-slate-50 rounded-xl border border-emerald-200/80 shadow-2xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+              <span>1-Click Quick Access</span>
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono">Instant Sign-In</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 pt-1">
+            {/* Admin Login */}
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleQuickLogin('muhammadirteza2024@gmail.com', 'dawoodian4321')}
+              className="w-full py-2 px-3 bg-purple-50 hover:bg-purple-100/90 text-purple-900 border border-purple-200 rounded-lg text-left transition-all flex items-center justify-between cursor-pointer group disabled:opacity-50"
+            >
+              <div>
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <span>Sign in as Admin (Muhammad Irteza)</span>
+                  <span className="px-1.5 py-0.2 text-[9px] bg-purple-200/70 text-purple-800 rounded font-semibold uppercase">
+                    Full Delete Rights
+                  </span>
+                </div>
+                <div className="text-[10px] text-purple-600/80 font-mono truncate">
+                  muhammadirteza2024@gmail.com
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-purple-400 group-hover:text-purple-700 group-hover:translate-x-0.5 transition-all" />
+            </button>
+
+            {/* Student Login */}
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleQuickLogin('irteza.student@university.edu', 'student123')}
+              className="w-full py-2 px-3 bg-white hover:bg-emerald-50 text-slate-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-left transition-all flex items-center justify-between cursor-pointer group disabled:opacity-50"
+            >
+              <div>
+                <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <span>Sign in as Student (Muhammad Irteza)</span>
+                  <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 rounded font-semibold">
+                    Student
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-500 font-mono truncate">
+                  irteza.student@university.edu
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-all" />
+            </button>
+          </div>
+        </div>
+
+        {/* Unauthorized Domain Explanatory Banner */}
+        {isUnauthorizedDomain && (
+          <div className="mb-4 p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2 animate-in fade-in">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-semibold block text-amber-950">
+                  Firebase Domain Authorization Note
+                </strong>
+                <p className="text-[11px] text-amber-800 leading-relaxed mt-0.5">
+                  Ye error is liye aa raha hai kyunki Google OAuth Popup ke liye Firebase Console me current preview domain allowlist hona zaroori hota hai.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-2 bg-white/80 rounded-lg border border-amber-200 text-[10px] space-y-1">
+              <span className="text-slate-500 block">Current Preview Domain:</span>
+              <div className="flex items-center justify-between gap-1 font-mono text-slate-800 break-all">
+                <span>{currentHostname}</span>
+                <button
+                  type="button"
+                  onClick={handleCopyDomain}
+                  className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {copiedDomain ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedDomain ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-amber-800">
+              💡 Aap upar diye gaye <strong>"1-Click Quick Access"</strong> buttons se direct login kar sakte hain bina kisi error ke!
+            </p>
+          </div>
+        )}
+
+        {errorMessage && !isUnauthorizedDomain && (
+          <div className="mb-4 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
+            {errorMessage}
+          </div>
+        )}
 
         {/* Google Sign-in */}
         <button
           onClick={handleGoogleSignIn}
           disabled={isSubmitting}
-          className="w-full py-2.5 px-4 border border-slate-300 hover:bg-slate-50 disabled:opacity-60 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center gap-2.5 transition-colors shadow-2xs mb-5"
+          className="w-full py-2.5 px-4 border border-slate-300 hover:bg-slate-50 disabled:opacity-60 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center gap-2.5 transition-colors shadow-2xs mb-4 cursor-pointer"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -113,15 +233,9 @@ export const AuthScreen: React.FC = () => {
 
         <div className="flex items-center my-4">
           <div className="flex-1 border-t border-slate-200"></div>
-          <span className="px-3 text-[11px] text-slate-400 font-medium uppercase">Or student email</span>
+          <span className="px-3 text-[11px] text-slate-400 font-medium uppercase">Or email & password</span>
           <div className="flex-1 border-t border-slate-200"></div>
         </div>
-
-        {errorMessage && (
-          <div className="mb-4 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs">
-            {errorMessage}
-          </div>
-        )}
 
         {/* Email form */}
         <form onSubmit={handleEmailAuth} className="space-y-3 text-xs">
@@ -172,7 +286,7 @@ export const AuthScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
@@ -199,7 +313,7 @@ export const AuthScreen: React.FC = () => {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold shadow-xs transition-colors flex items-center justify-center gap-1.5 mt-2"
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold shadow-xs transition-colors flex items-center justify-center gap-1.5 mt-2 cursor-pointer"
           >
             {isSubmitting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -223,7 +337,7 @@ export const AuthScreen: React.FC = () => {
                   setIsRegister(false);
                   setErrorMessage('');
                 }}
-                className="text-emerald-700 font-semibold hover:underline"
+                className="text-emerald-700 font-semibold hover:underline cursor-pointer"
               >
                 Sign In
               </button>
@@ -237,7 +351,7 @@ export const AuthScreen: React.FC = () => {
                   setIsRegister(true);
                   setErrorMessage('');
                 }}
-                className="text-emerald-700 font-semibold hover:underline"
+                className="text-emerald-700 font-semibold hover:underline cursor-pointer"
               >
                 Create Student Account
               </button>
@@ -248,4 +362,5 @@ export const AuthScreen: React.FC = () => {
     </div>
   );
 };
+
 
