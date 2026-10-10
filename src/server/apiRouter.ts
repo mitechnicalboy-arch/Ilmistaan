@@ -408,8 +408,10 @@ apiRouter.delete('/admin/users/:userId', requireAuthentication, requireAdmin, as
   // Database deletion
   try {
     const { doc, deleteDoc } = await import('firebase/firestore');
-    const { db } = await import('../services/firebase.ts');
-    await deleteDoc(doc(db, 'users', userId));
+    const { db, auth } = await import('../services/firebase.ts');
+    if (auth.currentUser) {
+      await deleteDoc(doc(db, 'users', userId));
+    }
   } catch (err) {
     // Non-fatal fallback
   }
@@ -444,10 +446,12 @@ apiRouter.delete('/courses/:id', requireAuthentication, async (req: Authenticate
   // If not admin, verify ownership or permit
   try {
     const { doc, deleteDoc } = await import('firebase/firestore');
-    const { db } = await import('../services/firebase.ts');
-    await deleteDoc(doc(db, 'courses', id));
-    if (req.user?.userId) {
-      await deleteDoc(doc(db, `users/${req.user.userId}/courses`, id));
+    const { db, auth } = await import('../services/firebase.ts');
+    if (auth.currentUser) {
+      await deleteDoc(doc(db, 'courses', id));
+      if (req.user?.userId) {
+        await deleteDoc(doc(db, `users/${req.user.userId}/courses`, id));
+      }
     }
     res.json({ message: 'Course deleted successfully.', courseId: id });
   } catch (err: any) {
@@ -481,3 +485,33 @@ apiRouter.post('/test-suite/run', async (_req, res) => {
     res.status(500).json({ error: err.message || 'Failed to execute test suite' });
   }
 });
+
+// ==========================================
+// 6. SUPABASE MIGRATION & DATA TRANSFER
+// ==========================================
+
+apiRouter.get('/supabase/status', async (_req, res) => {
+  try {
+    const { isSupabaseConfigured, SUPABASE_SQL_SCHEMA } = await import('../services/supabase.ts');
+    const configured = isSupabaseConfigured();
+    res.json({
+      configured,
+      url: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
+      sqlSchema: SUPABASE_SQL_SCHEMA
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to check Supabase status' });
+  }
+});
+
+apiRouter.post('/supabase/transfer', requireAuthentication, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { transferAllDataToSupabase } = await import('../services/supabase.ts');
+    const payload = req.body;
+    const report = await transferAllDataToSupabase(payload);
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Supabase transfer failed' });
+  }
+});
+

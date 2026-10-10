@@ -7,7 +7,7 @@ import {
 } from './normalization.ts';
 import { AuthenticatedUser } from './auth.ts';
 import { INITIAL_ASSIGNMENTS, INITIAL_LECTURES, INITIAL_QUIZZES } from '../data/initialData.ts';
-import { db } from '../services/firebase.ts';
+import { db, auth } from '../services/firebase.ts';
 import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 
 export type AcademicRecordType = 'assignment' | 'lecture' | 'quiz' | 'note';
@@ -272,18 +272,20 @@ class AcademicStore {
       const collection = this.getCollection(type);
       collection.set(recordId, record);
 
-      // Step 6: Write-through to database in background
-      try {
-        await setDoc(doc(db, `${type}s`, recordId), record, { merge: true });
-        await setDoc(doc(db, 'unique_locks', lockKey), {
-          recordId,
-          type,
-          courseId,
-          normalizedTitle: norm,
-          createdAt: now,
-        });
-      } catch (err) {
-        // Log gracefully; local transactional memory ensures safety
+      // Step 6: Write-through to database in background ONLY if auth session exists
+      if (auth.currentUser) {
+        try {
+          await setDoc(doc(db, `${type}s`, recordId), record, { merge: true });
+          await setDoc(doc(db, 'unique_locks', lockKey), {
+            recordId,
+            type,
+            courseId,
+            normalizedTitle: norm,
+            createdAt: now,
+          });
+        } catch (err) {
+          // Log gracefully; local transactional memory ensures safety
+        }
       }
 
       return { status: 'created', record };
@@ -386,21 +388,23 @@ class AcademicStore {
 
       collection.set(id, updatedRecord);
 
-      // Database sync
-      try {
-        await setDoc(doc(db, `${type}s`, id), updatedRecord, { merge: true });
-        if (newLockKey !== oldLockKey) {
-          await deleteDoc(doc(db, 'unique_locks', oldLockKey));
-          await setDoc(doc(db, 'unique_locks', newLockKey), {
-            recordId: id,
-            type,
-            courseId: targetCourseId,
-            normalizedTitle: newNorm,
-            updatedAt: updatedRecord.updatedAt,
-          });
+      // Database sync ONLY if auth session exists
+      if (auth.currentUser) {
+        try {
+          await setDoc(doc(db, `${type}s`, id), updatedRecord, { merge: true });
+          if (newLockKey !== oldLockKey) {
+            await deleteDoc(doc(db, 'unique_locks', oldLockKey));
+            await setDoc(doc(db, 'unique_locks', newLockKey), {
+              recordId: id,
+              type,
+              courseId: targetCourseId,
+              normalizedTitle: newNorm,
+              updatedAt: updatedRecord.updatedAt,
+            });
+          }
+        } catch (err) {
+          // Safe fallback
         }
-      } catch (err) {
-        // Safe fallback
       }
 
       return { status: 'updated', record: updatedRecord };
@@ -424,10 +428,12 @@ class AcademicStore {
 
     if (!existing) {
       if (user.role === 'admin') {
-        try {
-          await deleteDoc(doc(db, `${type}s`, id));
-        } catch (err) {
-          // ignore error
+        if (auth.currentUser) {
+          try {
+            await deleteDoc(doc(db, `${type}s`, id));
+          } catch (err) {
+            // ignore error
+          }
         }
         return { status: 'deleted' };
       }
@@ -455,12 +461,14 @@ class AcademicStore {
       existing.isDeleted = true;
     }
 
-    // Database sync
-    try {
-      await deleteDoc(doc(db, `${type}s`, id));
-      await deleteDoc(doc(db, 'unique_locks', lockKey));
-    } catch (err) {
-      // Safe fallback
+    // Database sync ONLY if auth session exists
+    if (auth.currentUser) {
+      try {
+        await deleteDoc(doc(db, `${type}s`, id));
+        await deleteDoc(doc(db, 'unique_locks', lockKey));
+      } catch (err) {
+        // Safe fallback
+      }
     }
 
     return { status: 'deleted' };
@@ -489,11 +497,13 @@ class AcademicStore {
           collection.delete(id);
           purgedCount++;
 
-          try {
-            await deleteDoc(doc(db, `${t}s`, id));
-            await deleteDoc(doc(db, 'unique_locks', lockKey));
-          } catch (e) {
-            // ignore
+          if (auth.currentUser) {
+            try {
+              await deleteDoc(doc(db, `${t}s`, id));
+              await deleteDoc(doc(db, 'unique_locks', lockKey));
+            } catch (e) {
+              // ignore
+            }
           }
         }
       }
@@ -526,10 +536,12 @@ class AcademicStore {
           collection.delete(id);
           deletedCount++;
 
-          try {
-            await deleteDoc(doc(db, `${t}s`, id));
-            await deleteDoc(doc(db, 'unique_locks', lockKey));
-          } catch (e) {}
+          if (auth.currentUser) {
+            try {
+              await deleteDoc(doc(db, `${t}s`, id));
+              await deleteDoc(doc(db, 'unique_locks', lockKey));
+            } catch (e) {}
+          }
         }
       }
     }

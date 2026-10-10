@@ -42,6 +42,14 @@ import {
 } from 'firebase/firestore';
 
 import { ConfirmationModalConfig } from '../components/modals/ConfirmationModal';
+import { 
+  getSupabaseClient, 
+  isSupabaseConfigured, 
+  supabaseSignIn, 
+  supabaseSignUp, 
+  supabaseSignOut,
+  SINGLE_ADMIN_EMAIL as SUPABASE_ADMIN_EMAIL
+} from '../services/supabase';
 
 export type ConfirmModalRequest = Omit<ConfirmationModalConfig, 'isOpen'>;
 
@@ -356,10 +364,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   useEffect(() => {
     localStorage.setItem('unidiary_courses_v5', JSON.stringify(courses));
-    // Persist all 9 updated courses to Firestore database
+    // Persist updated courses to Firestore database ONLY when an authenticated Firebase user exists
     const syncCoursesToDb = async () => {
-      const uid = auth.currentUser?.uid || currentUser?.userId;
-      if (!uid) return;
+      if (!auth.currentUser) return;
+      const uid = auth.currentUser.uid;
       try {
         for (const c of courses) {
           await setDoc(doc(db, `users/${uid}/courses`, c.id), c, { merge: true });
@@ -444,6 +452,79 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => unsubscribe();
   }, []);
 
+  // Listen to Supabase Auth state & enforce suspension check
+  useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client || !isSupabaseConfigured()) return;
+
+    // Check active session on mount
+    client.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        try {
+          const { data: userProfile } = await client
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (userProfile?.is_suspended) {
+            await client.auth.signOut();
+            setCurrentUser(null);
+            localStorage.removeItem('unidiary_token');
+            localStorage.removeItem('unidiary_user');
+            return;
+          }
+
+          const isAdmin = session.user.email?.toLowerCase() === SUPABASE_ADMIN_EMAIL;
+          const profile: UserProfile = {
+            userId: session.user.id,
+            email: session.user.email || 'student@university.edu',
+            name: userProfile?.name || session.user.user_metadata?.full_name || 'University Student',
+            role: isAdmin ? 'admin' : (userProfile?.role || 'student'),
+            isSuspended: false,
+            timezone: userProfile?.timezone || 'Asia/Karachi (GMT+5)',
+            createdAt: userProfile?.created_at || new Date().toISOString()
+          };
+          setCurrentUser(profile);
+        } catch (_) {}
+      }
+    });
+
+    const { data: { subscription } } = client.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        try {
+          const { data: userProfile } = await client
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (userProfile?.is_suspended) {
+            await client.auth.signOut();
+            setCurrentUser(null);
+            return;
+          }
+
+          const isAdmin = session.user.email?.toLowerCase() === SUPABASE_ADMIN_EMAIL;
+          const profile: UserProfile = {
+            userId: session.user.id,
+            email: session.user.email || 'student@university.edu',
+            name: userProfile?.name || session.user.user_metadata?.full_name || 'University Student',
+            role: isAdmin ? 'admin' : (userProfile?.role || 'student'),
+            isSuspended: false,
+            timezone: userProfile?.timezone || 'Asia/Karachi (GMT+5)',
+            createdAt: userProfile?.created_at || new Date().toISOString()
+          };
+          setCurrentUser(profile);
+        } catch (_) {}
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   // Filtered active records (excluding soft-deleted)
   const activeSemester = useMemo(() => {
     return semesters.find(s => s.id === activeSemesterId) || semesters[0];
@@ -507,6 +588,24 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const loginWithEmail = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    // 1. If Supabase is configured in environment, authenticate through Supabase Auth
+    if (isSupabaseConfigured()) {
+      const supaRes = await supabaseSignIn(email, password);
+      if (supaRes.success && supaRes.user) {
+        const token = `session_${supaRes.user.userId}_${supaRes.user.role}_${Date.now()}`;
+        localStorage.setItem('unidiary_token', token);
+        localStorage.setItem('unidiary_user', JSON.stringify(supaRes.user));
+        setCurrentUser(supaRes.user);
+        return { success: true };
+      } else if (supaRes.isSuspended) {
+        return { success: false, error: supaRes.error };
+      }
+      if (supaRes.error && (supaRes.error.includes('Forbidden') || supaRes.error.includes('suspended'))) {
+        return { success: false, error: supaRes.error };
+      }
+    }
+
+    // 2. Fallback to local server authentication with strict role & ban checking
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -530,6 +629,21 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const registerWithEmail = async (fullName: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    // 1. If Supabase is configured, register through Supabase Auth
+    if (isSupabaseConfigured()) {
+      const supaRes = await supabaseSignUp(fullName, email, password);
+      if (supaRes.success && supaRes.user) {
+        const token = `session_${supaRes.user.userId}_${supaRes.user.role}_${Date.now()}`;
+        localStorage.setItem('unidiary_token', token);
+        localStorage.setItem('unidiary_user', JSON.stringify(supaRes.user));
+        setCurrentUser(supaRes.user);
+        return { success: true };
+      } else if (supaRes.error) {
+        return { success: false, error: supaRes.error };
+      }
+    }
+
+    // 2. Fallback to local server registration
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
@@ -554,6 +668,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const signOut = async () => {
     try {
+      await supabaseSignOut();
       await fbSignOut(auth);
     } catch (e) {
       console.warn(e);
@@ -606,6 +721,13 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       setCurrentUser(prev => prev ? { ...prev, isSuspended: !prev.isSuspended } : null);
     }
     try {
+      const client = getSupabaseClient();
+      if (client && isSupabaseConfigured()) {
+        const target = allUsers.find(u => u.userId === userId);
+        if (target) {
+          await client.from('users').update({ is_suspended: !target.isSuspended }).eq('id', userId);
+        }
+      }
       if (auth.currentUser) {
         const target = allUsers.find(u => u.userId === userId);
         if (target) {
@@ -643,6 +765,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       setCourses(prev => prev.filter(c => c.userId !== userId));
 
       try {
+        const client = getSupabaseClient();
+        if (client && isSupabaseConfigured()) {
+          await client.from('users').delete().eq('id', userId);
+        }
         if (auth.currentUser) {
           const { deleteDoc: delDoc, doc: dDoc } = await import('firebase/firestore');
           await delDoc(dDoc(db, 'users', userId));

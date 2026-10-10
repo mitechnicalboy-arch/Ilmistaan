@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserProfile, UserRole } from '../types/index.ts';
-import { db } from '../services/firebase.ts';
+import { db, auth } from '../services/firebase.ts';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 
 export interface AuthenticatedUser {
@@ -96,6 +96,16 @@ export function verifyAdminCredentials(email: string, password: string): boolean
  * Deletes or demotes any other admin accounts.
  */
 export async function syncSingleAdminToDatabase(): Promise<void> {
+  // Ensure local memory store has bootstrap admin initialized
+  if (!localUserStore.has(SINGLE_ADMIN_ID)) {
+    localUserStore.set(SINGLE_ADMIN_ID, BOOTSTRAP_ADMIN);
+  }
+
+  // Only perform Firestore Web SDK write if an authenticated Firebase session exists
+  if (!auth.currentUser) {
+    return;
+  }
+
   try {
     // 1. Ensure primary admin exists in Firestore
     const adminRef = doc(db, 'users', SINGLE_ADMIN_ID);

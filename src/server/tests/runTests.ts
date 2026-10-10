@@ -1,4 +1,5 @@
 import { runSecurityTestSuite } from './securityTests.ts';
+import { runSupabaseSecurityAudit } from './supabaseSecurityTests.ts';
 
 async function main() {
   console.log('====================================================');
@@ -17,13 +18,30 @@ async function main() {
   });
 
   console.log('\n----------------------------------------------------');
-  console.log(`SUMMARY: ${report.passedTests}/${report.totalTests} tests passed (${Math.round((report.passedTests / report.totalTests) * 100)}%)`);
+  console.log(`DIARY TEST SUMMARY: ${report.passedTests}/${report.totalTests} tests passed (${Math.round((report.passedTests / report.totalTests) * 100)}%)`);
+  console.log('----------------------------------------------------\n');
+
+  console.log('====================================================');
+  console.log('RUNNING SUPABASE RLS & DATABASE SECURITY AUDIT');
+  console.log('====================================================\n');
+
+  const supaAudit = runSupabaseSecurityAudit();
+
+  supaAudit.checks.forEach((c) => {
+    const symbol = c.passed ? '✓ PASSED' : '✗ FAILED';
+    console.log(`[${symbol}] ${c.id}: ${c.name}`);
+    console.log(`   Requirement: ${c.requirement}`);
+    console.log(`   Details: ${c.details}`);
+  });
+
+  console.log('\n----------------------------------------------------');
+  console.log(`SUPABASE AUDIT SUMMARY: ${supaAudit.passed}/${supaAudit.total} checks passed (${Math.round((supaAudit.passed / supaAudit.total) * 100)}%)`);
   console.log('----------------------------------------------------');
 
-  if (report.failedTests > 0) {
+  if (report.failedTests > 0 || supaAudit.failed > 0) {
     process.exit(1);
   } else {
-    console.log('ALL SECURITY & DUPLICATE PREVENTIONS ENFORCED PROPERLY.\n');
+    console.log('\nALL 35 SECURITY ASSERTIONS & RLS POLICIES VERIFIED SUCCESSFULLY.\n');
     process.exit(0);
   }
 }

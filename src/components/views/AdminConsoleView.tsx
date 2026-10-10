@@ -12,10 +12,12 @@ import {
   Server,
   Trash2,
   Flame,
-  Check
+  Check,
+  ArrowRight
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { formatDate } from '../../utils/dateUtils';
+import { SupabaseTransferModal } from '../modals/SupabaseTransferModal';
 
 export const AdminConsoleView: React.FC = () => {
   const { 
@@ -35,6 +37,7 @@ export const AdminConsoleView: React.FC = () => {
 
   const [studentSearch, setStudentSearch] = useState('');
   const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string | null>(null);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
 
   if (currentUser?.role !== 'admin') {
     return (
@@ -137,6 +140,35 @@ export const AdminConsoleView: React.FC = () => {
           <span className="font-medium">{purgeSuccessMsg}</span>
         </div>
       )}
+
+      {/* Supabase PostgreSQL Migration Hub Card */}
+      <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white rounded-xl p-5 shadow-sm border border-emerald-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30 shrink-0">
+            <Database className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-bold text-sm text-white">Supabase Relational Migration Hub</h4>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold">
+                PostgreSQL Ready
+              </span>
+            </div>
+            <p className="text-slate-300 text-xs mt-1 leading-relaxed max-w-2xl">
+              Transfer all academic courses, assignments, quizzes, lecture curriculum notes, and user accounts to Supabase. Includes 1-click batch transfer, pre-generated DDL SQL schema, and JSON export.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setIsSupabaseModalOpen(true)}
+          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs shrink-0 cursor-pointer self-start sm:self-auto hover:scale-[1.02] active:scale-[0.98]"
+        >
+          <Database className="w-3.5 h-3.5" />
+          <span>Open Supabase Transfer Hub</span>
+          <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+        </button>
+      </div>
 
       {/* System Metrics Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -296,6 +328,12 @@ export const AdminConsoleView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Supabase Transfer Modal */}
+      <SupabaseTransferModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
+      />
     </div>
   );
 };
