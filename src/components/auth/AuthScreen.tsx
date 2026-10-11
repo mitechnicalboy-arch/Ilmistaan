@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Mail, User, ArrowRight, Loader2, ShieldCheck, Copy, Check, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, User, ArrowRight, Loader2, Copy, Check, AlertCircle } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import crestImage from '../../assets/images/university_portal_crest_1791113487512.jpg';
 
@@ -22,16 +22,6 @@ export const AuthScreen: React.FC = () => {
       navigator.clipboard.writeText(currentHostname);
       setCopiedDomain(true);
       setTimeout(() => setCopiedDomain(false), 2500);
-    }
-  };
-
-  const handleQuickLogin = async (targetEmail: string, targetPass: string) => {
-    setErrorMessage('');
-    setIsSubmitting(true);
-    const res = await loginWithEmail(targetEmail, targetPass);
-    setIsSubmitting(false);
-    if (!res.success) {
-      setErrorMessage(res.error || 'Failed to sign in.');
     }
   };
 
@@ -107,61 +97,6 @@ export const AuthScreen: React.FC = () => {
           </p>
         </div>
 
-        {/* 1-Click Fast Access Accounts (Bypasses unauthorized domain popup) */}
-        <div className="mb-5 p-3.5 bg-gradient-to-br from-emerald-50/90 to-slate-50 rounded-xl border border-emerald-200/80 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-              <span>1-Click Quick Access</span>
-            </span>
-            <span className="text-[10px] text-slate-400 font-mono">Instant Sign-In</span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 pt-1">
-            {/* Admin Login */}
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => handleQuickLogin('muhammadirteza2024@gmail.com', 'dawoodian4321')}
-              className="w-full py-2 px-3 bg-purple-50 hover:bg-purple-100/90 text-purple-900 border border-purple-200 rounded-lg text-left transition-all flex items-center justify-between cursor-pointer group disabled:opacity-50"
-            >
-              <div>
-                <div className="text-xs font-bold flex items-center gap-1.5">
-                  <span>Sign in as Admin (Muhammad Irteza)</span>
-                  <span className="px-1.5 py-0.2 text-[9px] bg-purple-200/70 text-purple-800 rounded font-semibold uppercase">
-                    Full Delete Rights
-                  </span>
-                </div>
-                <div className="text-[10px] text-purple-600/80 font-mono truncate">
-                  muhammadirteza2024@gmail.com
-                </div>
-              </div>
-              <ArrowRight className="w-3.5 h-3.5 text-purple-400 group-hover:text-purple-700 group-hover:translate-x-0.5 transition-all" />
-            </button>
-
-            {/* Student Login */}
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => handleQuickLogin('irteza.student@university.edu', 'student123')}
-              className="w-full py-2 px-3 bg-white hover:bg-emerald-50 text-slate-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-left transition-all flex items-center justify-between cursor-pointer group disabled:opacity-50"
-            >
-              <div>
-                <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <span>Sign in as Student (Muhammad Irteza)</span>
-                  <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 rounded font-semibold">
-                    Student
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-500 font-mono truncate">
-                  irteza.student@university.edu
-                </div>
-              </div>
-              <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-all" />
-            </button>
-          </div>
-        </div>
-
         {/* Unauthorized Domain Explanatory Banner */}
         {isUnauthorizedDomain && (
           <div className="mb-4 p-3 bg-amber-50/90 border border-amber-200 rounded-xl text-amber-900 text-xs space-y-2 animate-in fade-in">
@@ -191,10 +126,6 @@ export const AuthScreen: React.FC = () => {
                 </button>
               </div>
             </div>
-
-            <p className="text-[11px] text-amber-800">
-              💡 Aap upar diye gaye <strong>"1-Click Quick Access"</strong> buttons se direct login kar sakte hain bina kisi error ke!
-            </p>
           </div>
         )}
 

@@ -61,50 +61,50 @@ service cloud.firestore {
       // Semesters
       match /semesters/{semesterId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(semesterId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(semesterId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(semesterId) && notSuspended(userId)) || isAdmin();
       }
 
       // Courses
       match /courses/{courseId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(courseId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(courseId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(courseId) && notSuspended(userId)) || isAdmin();
       }
 
       // Assignments
       match /assignments/{assignmentId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(assignmentId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(assignmentId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(assignmentId) && notSuspended(userId)) || isAdmin();
       }
 
       // Lectures
       match /lectures/{lectureId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(lectureId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(lectureId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(lectureId) && notSuspended(userId)) || isAdmin();
       }
 
       // Quizzes
       match /quizzes/{quizId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(quizId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(quizId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(quizId) && notSuspended(userId)) || isAdmin();
       }
 
       // Chat Messages
       match /chatMessages/{messageId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create, update: if isOwner(userId) && isValidId(messageId) && notSuspended(userId);
+        allow create, update: if (isOwner(userId) && isValidId(messageId) && notSuspended(userId)) || isAdmin();
         allow delete: if (isOwner(userId) && isValidId(messageId) && notSuspended(userId)) || isAdmin();
       }
     }
 
-    // Root Academic Collections with Strict Ownership and Admin Rules
+    // Root Academic Collections with Strict Ownership and Full Admin Rules
     match /courses/{courseId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && notSuspended(request.auth.uid);
+      allow create: if (isSignedIn() && notSuspended(request.auth.uid)) || isAdmin();
       allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         notSuspended(request.auth.uid)) || isAdmin();
@@ -113,9 +113,9 @@ service cloud.firestore {
 
     match /assignments/{assignmentId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
+      allow create: if (isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        notSuspended(request.auth.uid);
+        notSuspended(request.auth.uid)) || isAdmin();
       allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
@@ -125,9 +125,9 @@ service cloud.firestore {
 
     match /lectures/{lectureId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
+      allow create: if (isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        notSuspended(request.auth.uid);
+        notSuspended(request.auth.uid)) || isAdmin();
       allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
@@ -137,9 +137,9 @@ service cloud.firestore {
 
     match /quizzes/{quizId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
+      allow create: if (isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        notSuspended(request.auth.uid);
+        notSuspended(request.auth.uid)) || isAdmin();
       allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&
@@ -149,9 +149,9 @@ service cloud.firestore {
 
     match /notes/{noteId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
+      allow create: if (isSignedIn() &&
         request.resource.data.userId == request.auth.uid &&
-        notSuspended(request.auth.uid);
+        notSuspended(request.auth.uid)) || isAdmin();
       allow update: if (isSignedIn() &&
         resource.data.userId == request.auth.uid &&
         request.resource.data.userId == resource.data.userId &&

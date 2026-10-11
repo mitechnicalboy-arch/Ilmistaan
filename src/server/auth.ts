@@ -35,35 +35,9 @@ export const BOOTSTRAP_ADMIN: AuthenticatedUser = {
   isSuspended: false
 };
 
-const DEFAULT_STUDENT: AuthenticatedUser = {
-  userId: 'usr_student_irteza',
-  email: 'irteza.student@university.edu',
-  name: 'Muhammad Irteza (Student)',
-  role: 'student',
-  isSuspended: false
-};
-
-const STUDENT_ZAIN: AuthenticatedUser = {
-  userId: 'usr_student_zain',
-  email: 'zain.ali@student.uni.edu',
-  name: 'Zain Ali',
-  role: 'student',
-  isSuspended: false
-};
-
-const STUDENT_AYESHA: AuthenticatedUser = {
-  userId: 'usr_student_ayesha',
-  email: 'ayesha.khan@student.uni.edu',
-  name: 'Ayesha Khan',
-  role: 'student',
-  isSuspended: true
-};
-
-// Seed users ensuring ONLY ONE Admin account exists
+// Seed ONLY the designated Administrator account
 localUserStore.set(BOOTSTRAP_ADMIN.userId, BOOTSTRAP_ADMIN);
-localUserStore.set(DEFAULT_STUDENT.userId, DEFAULT_STUDENT);
-localUserStore.set(STUDENT_ZAIN.userId, STUDENT_ZAIN);
-localUserStore.set(STUDENT_AYESHA.userId, STUDENT_AYESHA);
+
 
 // Purge any other admin account from memory
 export function purgeUnauthorizedAdmins() {
@@ -239,9 +213,9 @@ export async function requireAuthentication(
       candidateUserId = devUserId.trim();
     }
 
-    // Fallback to default student if no credentials provided in dev environment
+    // Fallback to designated administrator if no credentials provided in dev environment
     if (!candidateUserId) {
-      candidateUserId = 'usr_student_irteza';
+      candidateUserId = SINGLE_ADMIN_ID;
     }
 
     // Resolve user strictly from database
@@ -249,10 +223,10 @@ export async function requireAuthentication(
 
     if (!user) {
       // If user does not exist in store, create a standard student account (NEVER admin without password authentication!)
-      const isKnownAdmin = candidateUserId === SINGLE_ADMIN_ID && authEmail === SINGLE_ADMIN_EMAIL;
+      const isKnownAdmin = (candidateUserId === SINGLE_ADMIN_ID || authEmail === SINGLE_ADMIN_EMAIL);
       user = {
         userId: candidateUserId,
-        email: authEmail || `${candidateUserId}@university.edu`,
+        email: authEmail || (isKnownAdmin ? SINGLE_ADMIN_EMAIL : `${candidateUserId}@university.edu`),
         name: isKnownAdmin ? SINGLE_ADMIN_NAME : `Student (${candidateUserId})`,
         role: isKnownAdmin ? 'admin' : 'student',
         isSuspended: false
@@ -260,8 +234,8 @@ export async function requireAuthentication(
       localUserStore.set(candidateUserId, user);
     }
 
-    // Double check: No account other than SINGLE_ADMIN_ID can ever have 'admin' role
-    if (user.role === 'admin' && (user.userId !== SINGLE_ADMIN_ID || user.email.toLowerCase() !== SINGLE_ADMIN_EMAIL)) {
+    // Double check: Only SINGLE_ADMIN_EMAIL can ever have 'admin' role
+    if (user.role === 'admin' && user.email.toLowerCase() !== SINGLE_ADMIN_EMAIL) {
       user.role = 'student';
     }
 
@@ -297,11 +271,10 @@ export function requireAdmin(
     return;
   }
 
-  // Critical: Only the one designated admin email and userId has admin privileges
+  // Critical: Only the designated admin email has administrative privileges
   if (
     req.user.role !== 'admin' || 
-    req.user.email.toLowerCase() !== SINGLE_ADMIN_EMAIL || 
-    req.user.userId !== SINGLE_ADMIN_ID
+    req.user.email.toLowerCase() !== SINGLE_ADMIN_EMAIL
   ) {
     res.status(403).json({
       error: 'Forbidden: Administrative privileges are required for this operation.',

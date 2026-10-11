@@ -187,34 +187,7 @@ const SINGLE_ADMIN_ACCOUNT: UserProfile = {
 };
 
 const INITIAL_PORTAL_USERS: UserProfile[] = [
-  SINGLE_ADMIN_ACCOUNT,
-  {
-    userId: 'usr_student_irteza',
-    email: 'irteza.student@university.edu',
-    name: 'Muhammad Irteza (Student)',
-    role: 'student',
-    isSuspended: false,
-    timezone: 'Asia/Karachi (GMT+5)',
-    createdAt: '2026-09-02T08:00:00Z',
-  },
-  {
-    userId: 'usr_student_zain',
-    email: 'zain.ali@student.uni.edu',
-    name: 'Zain Ali',
-    role: 'student',
-    isSuspended: false,
-    timezone: 'Asia/Karachi (GMT+5)',
-    createdAt: '2026-09-02T11:00:00Z',
-  },
-  {
-    userId: 'usr_student_ayesha',
-    email: 'ayesha.khan@student.uni.edu',
-    name: 'Ayesha Khan',
-    role: 'student',
-    isSuspended: true,
-    timezone: 'Asia/Karachi (GMT+5)',
-    createdAt: '2026-09-03T14:30:00Z',
-  }
+  SINGLE_ADMIN_ACCOUNT
 ];
 
 export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -223,8 +196,20 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as UserProfile;
-        // Verify only the single official admin holds admin role
-        if (parsed.role === 'admin' && (parsed.email?.toLowerCase() !== 'muhammadirteza2024@gmail.com' || parsed.userId !== 'usr_admin_irteza')) {
+        // Purge any deprecated mock student accounts from session cache
+        if (
+          parsed.email?.toLowerCase() === 'irteza.student@university.edu' ||
+          parsed.email?.toLowerCase() === 'zain.ali@student.uni.edu' ||
+          parsed.email?.toLowerCase() === 'ayesha.khan@student.uni.edu' ||
+          parsed.userId === 'usr_student_irteza'
+        ) {
+          localStorage.removeItem('unidiary_user');
+          localStorage.removeItem('unidiary_token');
+          return null;
+        }
+
+        // Verify only the official admin holds admin role
+        if (parsed.role === 'admin' && (parsed.email?.toLowerCase() !== 'muhammadirteza2024@gmail.com' && parsed.userId !== 'usr_admin_irteza')) {
           parsed.role = 'student';
         }
         return parsed;
@@ -239,7 +224,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const [semesters, setSemesters] = useState<Semester[]>(() => {
     const saved = localStorage.getItem('unidiary_semesters');
-    return saved ? JSON.parse(saved) : [{ ...FALL_2026_SEMESTER, userId: currentUser?.userId || 'usr_student_irteza' }];
+    return saved ? JSON.parse(saved) : [{ ...FALL_2026_SEMESTER, userId: currentUser?.userId || 'usr_admin_irteza' }];
   });
 
   const [activeSemesterId, setActiveSemesterId] = useState<string>('sem_fall_2026');
@@ -259,7 +244,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   const [courses, setCourses] = useState<Course[]>(() => {
-    const uid = currentUser?.userId || 'usr_student_irteza';
+    const uid = currentUser?.userId || 'usr_admin_irteza';
     const defaultCourses = INITIAL_9_COURSES.map(c => ({ ...c, userId: uid }));
     const saved = localStorage.getItem('unidiary_courses_v5');
     if (saved) {
@@ -288,7 +273,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         return [];
       }
     }
-    const uid = currentUser?.userId || 'usr_student_irteza';
+    const uid = currentUser?.userId || 'usr_admin_irteza';
     return INITIAL_ASSIGNMENTS.map((a, idx) => ({ ...a, userId: uid, assignmentNumber: a.assignmentNumber || (idx + 1) }));
   });
 
@@ -302,7 +287,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         return [];
       }
     }
-    const uid = currentUser?.userId || 'usr_student_irteza';
+    const uid = currentUser?.userId || 'usr_admin_irteza';
     return INITIAL_LECTURES.map((l, idx) => ({ ...l, userId: uid, lectureNumber: l.lectureNumber || (idx + 1), title: l.title || l.topicsCovered }));
   });
 
@@ -316,7 +301,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         return [];
       }
     }
-    const uid = currentUser?.userId || 'usr_student_irteza';
+    const uid = currentUser?.userId || 'usr_admin_irteza';
     return INITIAL_QUIZZES.map((q, idx) => ({ ...q, userId: uid, quizNumber: q.quizNumber || (idx + 1), assignedDate: q.assignedDate || '2026-09-25' }));
   });
 
@@ -326,7 +311,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return saved ? JSON.parse(saved) : [
       {
         id: 'msg_initial',
-        userId: currentUser?.userId || 'usr_student_irteza',
+        userId: currentUser?.userId || 'usr_admin_irteza',
         role: 'model',
         persona: 'tutor',
         model: 'gemini-3.8-flash',
@@ -473,10 +458,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         const cleanEmail = (fbUser.email || '').toLowerCase().trim();
-        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || fbUser.uid === 'usr_admin_irteza';
+        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || cleanEmail === 'muhammadirteza2024@gmail.com' || fbUser.uid === 'usr_admin_irteza';
 
         let isSuspended = false;
-        let displayName = fbUser.displayName || 'University Student';
+        let displayName = fbUser.displayName || (isAdmin ? 'Muhammad Irteza' : 'University Student');
         let timezone = 'Asia/Karachi (GMT+5)';
 
         // Verify suspension and profile against Supabase users table
@@ -640,11 +625,9 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         const userCred = await signInWithEmailAndPassword(auth, cleanEmail, password);
         fbUid = userCred.user.uid;
       } catch (fbErr: any) {
-        // If account not initialized in Firebase Auth yet, auto-provision known credentials
+        // If account not initialized in Firebase Auth yet, auto-provision admin credentials
         const isPreSeeded = 
-          (cleanEmail === 'muhammadirteza2024@gmail.com' && password === 'dawoodian4321') ||
-          (cleanEmail === 'irteza.student@university.edu' && password === 'student123') ||
-          (cleanEmail.endsWith('@university.edu') || cleanEmail.endsWith('@student.uni.edu'));
+          (cleanEmail === 'muhammadirteza2024@gmail.com' && password === 'dawoodian4321');
 
         if (isPreSeeded && (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential' || fbErr?.code === 'auth/invalid-login-credentials')) {
           try {
@@ -682,7 +665,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
           };
         }
 
-        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || data.user.userId === 'usr_admin_irteza';
+        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || cleanEmail === 'muhammadirteza2024@gmail.com' || data.user.userId === 'usr_admin_irteza' || data.user.role === 'admin';
         const profile: UserProfile = {
           userId: fbUid || data.user.userId,
           email: cleanEmail,
@@ -696,6 +679,9 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_token', data.token);
         localStorage.setItem('unidiary_user', JSON.stringify(profile));
         setCurrentUser(profile);
+        if (isAdmin) {
+          setAllUsers([profile]);
+        }
 
         // Sync student profile to Supabase database with caller headers
         const client = getSupabaseClient(profile.userId, profile.email);
@@ -962,7 +948,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     const newSem: Semester = {
       ...sem,
       id,
-      userId: currentUser?.userId || 'usr_student_irteza',
+      userId: currentUser?.userId || 'usr_admin_irteza',
       createdAt: new Date().toISOString()
     };
     setSemesters(prev => [...prev, newSem]);
@@ -1016,7 +1002,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     const newCourse: Course = {
       ...c,
       id,
-      userId: currentUser?.userId || 'usr_student_irteza',
+      userId: currentUser?.userId || 'usr_admin_irteza',
       semesterId: activeSemesterId,
       isArchived: false,
       isDeleted: false,
@@ -1130,8 +1116,8 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('unidiary_token');
-    const uid = currentUser?.userId || auth.currentUser?.uid || 'usr_student_irteza';
-    const role = currentUser?.role || 'student';
+    const uid = currentUser?.userId || auth.currentUser?.uid || 'usr_admin_irteza';
+    const role = currentUser?.role || 'admin';
     return {
       'Content-Type': 'application/json',
       'Authorization': token ? `Bearer ${token}` : `Bearer session_${uid}_${role}`,
@@ -1230,7 +1216,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       const newAssign: Assignment = {
         ...assign,
         id,
-        userId: currentUser?.userId || 'usr_student_irteza',
+        userId: currentUser?.userId || 'usr_admin_irteza',
         semesterId: activeSemesterId,
         isPinned: false,
         isDeleted: false,
@@ -1443,7 +1429,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       const newLec: Lecture = {
         ...lec,
         id,
-        userId: currentUser?.userId || 'usr_student_irteza',
+        userId: currentUser?.userId || 'usr_admin_irteza',
         semesterId: activeSemesterId,
         isPinned: false,
         isDeleted: false,
@@ -1638,7 +1624,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       const newQuiz: Quiz = {
         ...quiz,
         id,
-        userId: currentUser?.userId || 'usr_student_irteza',
+        userId: currentUser?.userId || 'usr_admin_irteza',
         semesterId: activeSemesterId,
         isPinned: false,
         isDeleted: false,
@@ -1827,7 +1813,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     const newMsg: ChatMessage = {
       ...msg,
       id,
-      userId: currentUser?.userId || 'usr_student_irteza',
+      userId: currentUser?.userId || 'usr_admin_irteza',
       timestamp: new Date().toISOString()
     };
     setChatMessages(prev => [...prev, newMsg]);

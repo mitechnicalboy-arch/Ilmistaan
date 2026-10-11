@@ -59,7 +59,7 @@ class AcademicStore {
       const record: Assignment = {
         ...a,
         id,
-        userId: 'usr_student_irteza',
+        userId: 'usr_admin_irteza',
         assignmentNumber: a.assignmentNumber || (idx + 1),
         isPinned: a.isPinned ?? false,
         isDeleted: false,
@@ -79,7 +79,7 @@ class AcademicStore {
       const record: Lecture = {
         ...l,
         id,
-        userId: 'usr_student_irteza',
+        userId: 'usr_admin_irteza',
         title,
         lectureNumber: l.lectureNumber || (idx + 1),
         isPinned: l.isPinned ?? false,
@@ -99,7 +99,7 @@ class AcademicStore {
       const record: Quiz = {
         ...q,
         id,
-        userId: 'usr_student_irteza',
+        userId: 'usr_admin_irteza',
         quizNumber: q.quizNumber || (idx + 1),
         isPinned: q.isPinned ?? false,
         isDeleted: false,
