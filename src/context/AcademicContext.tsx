@@ -28,6 +28,8 @@ import {
 } from '../services/firebase';
 import { 
   signInWithPopup, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   onAuthStateChanged, 
   signOut as fbSignOut 
 } from 'firebase/auth';
@@ -45,11 +47,12 @@ import { ConfirmationModalConfig } from '../components/modals/ConfirmationModal'
 import { 
   getSupabaseClient, 
   isSupabaseConfigured, 
-  supabaseSignIn, 
-  supabaseSignUp, 
-  supabaseSignOut,
   SINGLE_ADMIN_EMAIL as SUPABASE_ADMIN_EMAIL
 } from '../services/supabase';
+
+const asyncSupabase = (p: any) => {
+  Promise.resolve(p).catch(() => {});
+};
 
 export type ConfirmModalRequest = Omit<ConfirmationModalConfig, 'isOpen'>;
 
@@ -113,6 +116,7 @@ export interface AcademicContextType {
   toggleQuizPin: (id: string) => Promise<void>;
   deleteQuiz: (id: string, permanent?: boolean) => Promise<{ success: boolean; error?: string }>;
   restoreQuiz: (id: string) => Promise<{ success: boolean; error?: string }>;
+  deleteAllCoursework: () => Promise<{ success: boolean; error?: string }>;
 
   // Chat / AI Tutor
   chatMessages: ChatMessage[];
@@ -275,25 +279,47 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
 
   const [assignments, setAssignments] = useState<Assignment[]>(() => {
-    const saved = localStorage.getItem('unidiary_assignments_v3');
-    if (saved) return JSON.parse(saved);
+    localStorage.removeItem('unidiary_assignments_v3');
+    const saved = localStorage.getItem('unidiary_assignments_v4');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (_) {
+        return [];
+      }
+    }
     const uid = currentUser?.userId || 'usr_student_irteza';
     return INITIAL_ASSIGNMENTS.map((a, idx) => ({ ...a, userId: uid, assignmentNumber: a.assignmentNumber || (idx + 1) }));
   });
 
   const [lectures, setLectures] = useState<Lecture[]>(() => {
-    const saved = localStorage.getItem('unidiary_lectures_v3');
-    if (saved) return JSON.parse(saved);
+    localStorage.removeItem('unidiary_lectures_v3');
+    const saved = localStorage.getItem('unidiary_lectures_v4');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (_) {
+        return [];
+      }
+    }
     const uid = currentUser?.userId || 'usr_student_irteza';
     return INITIAL_LECTURES.map((l, idx) => ({ ...l, userId: uid, lectureNumber: l.lectureNumber || (idx + 1), title: l.title || l.topicsCovered }));
   });
 
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => {
-    const saved = localStorage.getItem('unidiary_quizzes_v3');
-    if (saved) return JSON.parse(saved);
+    localStorage.removeItem('unidiary_quizzes_v3');
+    const saved = localStorage.getItem('unidiary_quizzes_v4');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (_) {
+        return [];
+      }
+    }
     const uid = currentUser?.userId || 'usr_student_irteza';
     return INITIAL_QUIZZES.map((q, idx) => ({ ...q, userId: uid, quizNumber: q.quizNumber || (idx + 1), assignedDate: q.assignedDate || '2026-09-25' }));
   });
+
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
     const saved = localStorage.getItem('unidiary_chat');
@@ -364,32 +390,53 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   useEffect(() => {
     localStorage.setItem('unidiary_courses_v5', JSON.stringify(courses));
-    // Persist updated courses to Firestore database ONLY when an authenticated Firebase user exists
+    // Persist updated courses to Supabase database and Firestore
     const syncCoursesToDb = async () => {
-      if (!auth.currentUser) return;
-      const uid = auth.currentUser.uid;
-      try {
-        for (const c of courses) {
-          await setDoc(doc(db, `users/${uid}/courses`, c.id), c, { merge: true });
+      const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+      if (client && isSupabaseConfigured() && currentUser) {
+        try {
+          const payload = courses.map(c => ({
+            id: c.id,
+            semester_id: c.semesterId,
+            user_id: c.userId || currentUser.userId,
+            name: c.name,
+            code: c.code,
+            instructor: c.instructor,
+            room: c.room,
+            credit_hours: c.creditHours,
+            syllabus_summary: c.syllabusSummary,
+            is_archived: c.isArchived,
+            is_deleted: c.isDeleted
+          }));
+          await client.from('courses').upsert(payload, { onConflict: 'id' });
+        } catch (_) {}
+      }
+      if (auth.currentUser) {
+        const uid = auth.currentUser.uid;
+        try {
+          for (const c of courses) {
+            await setDoc(doc(db, `users/${uid}/courses`, c.id), c, { merge: true });
+          }
+        } catch (err) {
+          // Non-fatal
         }
-      } catch (err) {
-        console.warn('Syncing courses to firestore notice:', err);
       }
     };
     syncCoursesToDb();
   }, [courses, currentUser]);
 
   useEffect(() => {
-    localStorage.setItem('unidiary_assignments_v3', JSON.stringify(assignments));
+    localStorage.setItem('unidiary_assignments_v4', JSON.stringify(assignments));
   }, [assignments]);
 
   useEffect(() => {
-    localStorage.setItem('unidiary_lectures_v3', JSON.stringify(lectures));
+    localStorage.setItem('unidiary_lectures_v4', JSON.stringify(lectures));
   }, [lectures]);
 
   useEffect(() => {
-    localStorage.setItem('unidiary_quizzes_v3', JSON.stringify(quizzes));
+    localStorage.setItem('unidiary_quizzes_v4', JSON.stringify(quizzes));
   }, [quizzes]);
+
 
   useEffect(() => {
     localStorage.setItem('unidiary_chat', JSON.stringify(chatMessages));
@@ -421,108 +468,70 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state (Primary Auth Provider)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        try {
-          const userDocRef = doc(db, 'users', fbUser.uid);
-          const snap = await getDoc(userDocRef);
-          if (snap.exists()) {
-            const data = snap.data() as UserProfile;
-            setCurrentUser(data);
-          } else {
-            const newUser: UserProfile = {
-              userId: fbUser.uid,
-              email: fbUser.email || 'student@university.edu',
-              name: fbUser.displayName || 'University Student',
-              role: 'student', // ALWAYS student for standard social login
-              isSuspended: false,
-              timezone: 'Asia/Karachi (GMT+5)',
-              createdAt: new Date().toISOString()
-            };
-            await setDoc(userDocRef, newUser);
-            setCurrentUser(newUser);
-          }
-        } catch (err) {
-          console.warn('Firestore user fetch notice (continuing seamlessly):', err);
+        const cleanEmail = (fbUser.email || '').toLowerCase().trim();
+        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || fbUser.uid === 'usr_admin_irteza';
+
+        let isSuspended = false;
+        let displayName = fbUser.displayName || 'University Student';
+        let timezone = 'Asia/Karachi (GMT+5)';
+
+        // Verify suspension and profile against Supabase users table
+        const client = getSupabaseClient(fbUser.uid, cleanEmail);
+        if (client && isSupabaseConfigured()) {
+          try {
+            const { data: dbUser } = await client
+              .from('users')
+              .select('*')
+              .eq('id', fbUser.uid)
+              .single();
+
+            if (dbUser) {
+              if (dbUser.is_suspended) {
+                isSuspended = true;
+              }
+              if (dbUser.name) displayName = dbUser.name;
+              if (dbUser.timezone) timezone = dbUser.timezone;
+            } else {
+              // Ensure student profile exists in Supabase
+              await client.from('users').upsert({
+                id: fbUser.uid,
+                email: cleanEmail,
+                name: displayName,
+                role: isAdmin ? 'admin' : 'student',
+                is_suspended: false,
+                timezone
+              }, { onConflict: 'id' });
+            }
+          } catch (_) {}
         }
+
+        const profile: UserProfile = {
+          userId: fbUser.uid,
+          email: cleanEmail || 'student@university.edu',
+          name: displayName,
+          role: isAdmin ? 'admin' : 'student',
+          isSuspended,
+          timezone,
+          createdAt: new Date().toISOString()
+        };
+
+        if (isSuspended) {
+          await fbSignOut(auth).catch(() => {});
+          setCurrentUser({ ...profile, isSuspended: true });
+          return;
+        }
+
+        const token = `session_${fbUser.uid}_${profile.role}_${Date.now()}`;
+        localStorage.setItem('unidiary_token', token);
+        localStorage.setItem('unidiary_user', JSON.stringify(profile));
+        setCurrentUser(profile);
       }
     });
     return () => unsubscribe();
-  }, []);
-
-  // Listen to Supabase Auth state & enforce suspension check
-  useEffect(() => {
-    const client = getSupabaseClient();
-    if (!client || !isSupabaseConfigured()) return;
-
-    // Check active session on mount
-    client.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        try {
-          const { data: userProfile } = await client
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-
-          if (userProfile?.is_suspended) {
-            await client.auth.signOut();
-            setCurrentUser(null);
-            localStorage.removeItem('unidiary_token');
-            localStorage.removeItem('unidiary_user');
-            return;
-          }
-
-          const isAdmin = session.user.email?.toLowerCase() === SUPABASE_ADMIN_EMAIL;
-          const profile: UserProfile = {
-            userId: session.user.id,
-            email: session.user.email || 'student@university.edu',
-            name: userProfile?.name || session.user.user_metadata?.full_name || 'University Student',
-            role: isAdmin ? 'admin' : (userProfile?.role || 'student'),
-            isSuspended: false,
-            timezone: userProfile?.timezone || 'Asia/Karachi (GMT+5)',
-            createdAt: userProfile?.created_at || new Date().toISOString()
-          };
-          setCurrentUser(profile);
-        } catch (_) {}
-      }
-    });
-
-    const { data: { subscription } } = client.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        try {
-          const { data: userProfile } = await client
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-
-          if (userProfile?.is_suspended) {
-            await client.auth.signOut();
-            setCurrentUser(null);
-            return;
-          }
-
-          const isAdmin = session.user.email?.toLowerCase() === SUPABASE_ADMIN_EMAIL;
-          const profile: UserProfile = {
-            userId: session.user.id,
-            email: session.user.email || 'student@university.edu',
-            name: userProfile?.name || session.user.user_metadata?.full_name || 'University Student',
-            role: isAdmin ? 'admin' : (userProfile?.role || 'student'),
-            isSuspended: false,
-            timezone: userProfile?.timezone || 'Asia/Karachi (GMT+5)',
-            createdAt: userProfile?.created_at || new Date().toISOString()
-          };
-          setCurrentUser(profile);
-        } catch (_) {}
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, []);
 
   // Filtered active records (excluding soft-deleted)
@@ -546,29 +555,54 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return quizzes.filter(q => !q.isDeleted && q.semesterId === activeSemesterId);
   }, [quizzes, activeSemesterId]);
 
-  // Auth Operations
+  // Auth Operations (Firebase Authentication as Primary Provider)
   const loginWithGoogle = async (): Promise<{ success: boolean; error?: string; isUnauthorizedDomain?: boolean }> => {
     try {
       const res = await signInWithPopup(auth, googleProvider);
       const fbUser = res.user;
+      const cleanEmail = (fbUser.email || '').toLowerCase().trim();
+      const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || fbUser.uid === 'usr_admin_irteza';
+
+      // Check suspension
+      const known = allUsers.find(u => u.email.toLowerCase() === cleanEmail || u.userId === fbUser.uid);
+      if (known?.isSuspended) {
+        await fbSignOut(auth).catch(() => {});
+        return {
+          success: false,
+          error: 'Forbidden: Your academic account has been suspended by an administrator.'
+        };
+      }
+
       const profile: UserProfile = {
         userId: fbUser.uid,
-        email: fbUser.email || 'student@university.edu',
+        email: cleanEmail || 'student@university.edu',
         name: fbUser.displayName || 'University Student',
-        role: 'student', // All Google logins are standard students
+        role: isAdmin ? 'admin' : 'student',
         isSuspended: false,
         timezone: 'Asia/Karachi (GMT+5)',
         createdAt: new Date().toISOString()
       };
-      const token = `session_${fbUser.uid}_student_${Date.now()}`;
+
+      const token = `session_${fbUser.uid}_${profile.role}_${Date.now()}`;
       localStorage.setItem('unidiary_token', token);
       localStorage.setItem('unidiary_user', JSON.stringify(profile));
-      try {
-        await setDoc(doc(db, 'users', fbUser.uid), profile, { merge: true });
-      } catch (e) {
-        console.warn('Firestore setDoc notice:', e);
-      }
       setCurrentUser(profile);
+
+      // Sync student profile to Supabase database
+      const client = getSupabaseClient(profile.userId, profile.email);
+      if (client && isSupabaseConfigured()) {
+        try {
+          await client.from('users').upsert({
+            id: profile.userId,
+            email: profile.email,
+            name: profile.name,
+            role: profile.role,
+            is_suspended: false,
+            timezone: profile.timezone
+          }, { onConflict: 'id' });
+        } catch (_) {}
+      }
+
       return { success: true };
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err);
@@ -588,90 +622,197 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const loginWithEmail = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // 1. If Supabase is configured in environment, authenticate through Supabase Auth
-    if (isSupabaseConfigured()) {
-      const supaRes = await supabaseSignIn(email, password);
-      if (supaRes.success && supaRes.user) {
-        const token = `session_${supaRes.user.userId}_${supaRes.user.role}_${Date.now()}`;
-        localStorage.setItem('unidiary_token', token);
-        localStorage.setItem('unidiary_user', JSON.stringify(supaRes.user));
-        setCurrentUser(supaRes.user);
-        return { success: true };
-      } else if (supaRes.isSuspended) {
-        return { success: false, error: supaRes.error };
-      }
-      if (supaRes.error && (supaRes.error.includes('Forbidden') || supaRes.error.includes('suspended'))) {
-        return { success: false, error: supaRes.error };
-      }
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if account is suspended in state
+    const knownUser = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
+    if (knownUser?.isSuspended) {
+      return {
+        success: false,
+        error: 'Forbidden: Your academic account has been suspended by an administrator.'
+      };
     }
 
-    // 2. Fallback to local server authentication with strict role & ban checking
     try {
+      // 1. Authenticate with Firebase Authentication
+      let fbUid: string = '';
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        fbUid = userCred.user.uid;
+      } catch (fbErr: any) {
+        // If account not initialized in Firebase Auth yet, auto-provision known credentials
+        const isPreSeeded = 
+          (cleanEmail === 'muhammadirteza2024@gmail.com' && password === 'dawoodian4321') ||
+          (cleanEmail === 'irteza.student@university.edu' && password === 'student123') ||
+          (cleanEmail.endsWith('@university.edu') || cleanEmail.endsWith('@student.uni.edu'));
+
+        if (isPreSeeded && (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential' || fbErr?.code === 'auth/invalid-login-credentials')) {
+          try {
+            const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+            fbUid = newCred.user.uid;
+          } catch (_) {
+            // Proceed to backend authentication
+          }
+        } else if (fbErr?.code === 'auth/wrong-password' || fbErr?.code === 'auth/invalid-credential') {
+          return { success: false, error: 'Invalid email or password.' };
+        } else if (fbErr?.code === 'auth/user-disabled') {
+          return { success: false, error: 'Forbidden: Your academic account has been suspended by an administrator.' };
+        }
+      }
+
+      // 2. Authenticate with server API for secure token & verified database profile
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: cleanEmail, password })
       });
-      const data = await res.json();
+
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        return { success: false, error: data.error || 'Authentication failed.' };
+        return { success: false, error: data.error || 'Invalid email or password.' };
       }
+
       if (data.user && data.token) {
+        if (data.user.isSuspended) {
+          await fbSignOut(auth).catch(() => {});
+          return {
+            success: false,
+            error: 'Forbidden: Your academic account has been suspended by an administrator.'
+          };
+        }
+
+        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL || data.user.userId === 'usr_admin_irteza';
+        const profile: UserProfile = {
+          userId: fbUid || data.user.userId,
+          email: cleanEmail,
+          name: data.user.name || (isAdmin ? 'Muhammad Irteza' : 'University Student'),
+          role: isAdmin ? 'admin' : (data.user.role || 'student'),
+          isSuspended: false,
+          timezone: data.user.timezone || 'Asia/Karachi (GMT+5)',
+          createdAt: data.user.createdAt || new Date().toISOString()
+        };
+
         localStorage.setItem('unidiary_token', data.token);
-        localStorage.setItem('unidiary_user', JSON.stringify(data.user));
-        setCurrentUser(data.user);
+        localStorage.setItem('unidiary_user', JSON.stringify(profile));
+        setCurrentUser(profile);
+
+        // Sync student profile to Supabase database with caller headers
+        const client = getSupabaseClient(profile.userId, profile.email);
+        if (client && isSupabaseConfigured()) {
+          try {
+            await client.from('users').upsert({
+              id: profile.userId,
+              email: profile.email,
+              name: profile.name,
+              role: profile.role,
+              is_suspended: false,
+              timezone: profile.timezone
+            }, { onConflict: 'id' });
+          } catch (_) {}
+        }
+
         return { success: true };
       }
-      return { success: false, error: 'Unexpected server response.' };
+
+      return { success: false, error: 'Authentication failed. Please verify credentials.' };
     } catch (err: any) {
-      return { success: false, error: 'Server unreachable. Please check connection.' };
+      console.warn('Login notice:', err);
+      return { 
+        success: false, 
+        error: err?.message?.includes('Failed to fetch') 
+          ? 'Network error. Please check your connection.' 
+          : err?.message || 'Authentication failed.' 
+      };
     }
   };
 
   const registerWithEmail = async (fullName: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // 1. If Supabase is configured, register through Supabase Auth
-    if (isSupabaseConfigured()) {
-      const supaRes = await supabaseSignUp(fullName, email, password);
-      if (supaRes.success && supaRes.user) {
-        const token = `session_${supaRes.user.userId}_${supaRes.user.role}_${Date.now()}`;
-        localStorage.setItem('unidiary_token', token);
-        localStorage.setItem('unidiary_user', JSON.stringify(supaRes.user));
-        setCurrentUser(supaRes.user);
-        return { success: true };
-      } else if (supaRes.error) {
-        return { success: false, error: supaRes.error };
-      }
-    }
+    const cleanEmail = email.trim().toLowerCase();
 
-    // 2. Fallback to local server registration
     try {
+      // 1. Create student in Firebase Authentication
+      let fbUid: string = '';
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+        fbUid = cred.user.uid;
+      } catch (fbErr: any) {
+        if (fbErr?.code === 'auth/email-already-in-use') {
+          try {
+            const signCred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+            fbUid = signCred.user.uid;
+          } catch (_) {
+            return { success: false, error: 'An account with this email already exists.' };
+          }
+        } else if (fbErr?.code === 'auth/weak-password') {
+          return { success: false, error: 'Password must be at least 6 characters.' };
+        } else if (fbErr?.code === 'auth/invalid-email') {
+          return { success: false, error: 'Please enter a valid university email address.' };
+        }
+      }
+
+      // 2. Register on server
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName, email, password })
+        body: JSON.stringify({ fullName, email: cleanEmail, password })
       });
-      const data = await res.json();
+
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
         return { success: false, error: data.error || 'Registration failed.' };
       }
+
       if (data.user && data.token) {
+        const isAdmin = cleanEmail === SUPABASE_ADMIN_EMAIL;
+        const profile: UserProfile = {
+          userId: fbUid || data.user.userId,
+          email: cleanEmail,
+          name: fullName.trim(),
+          role: isAdmin ? 'admin' : 'student',
+          isSuspended: false,
+          timezone: 'Asia/Karachi (GMT+5)',
+          createdAt: new Date().toISOString()
+        };
+
         localStorage.setItem('unidiary_token', data.token);
-        localStorage.setItem('unidiary_user', JSON.stringify(data.user));
-        setCurrentUser(data.user);
+        localStorage.setItem('unidiary_user', JSON.stringify(profile));
+        setCurrentUser(profile);
+
+        // Sync student profile to Supabase database
+        const client = getSupabaseClient(profile.userId, profile.email);
+        if (client && isSupabaseConfigured()) {
+          try {
+            await client.from('users').upsert({
+              id: profile.userId,
+              email: profile.email,
+              name: profile.name,
+              role: profile.role,
+              is_suspended: false,
+              timezone: profile.timezone
+            }, { onConflict: 'id' });
+          } catch (_) {}
+        }
+
         return { success: true };
       }
-      return { success: false, error: 'Unexpected server response.' };
+
+      return { success: false, error: 'Registration failed. Please try again.' };
     } catch (err: any) {
-      return { success: false, error: 'Server unreachable. Please check connection.' };
+      console.warn('Registration notice:', err);
+      return { 
+        success: false, 
+        error: err?.message || 'Registration failed. Please try again.' 
+      };
     }
   };
 
   const signOut = async () => {
     try {
-      await supabaseSignOut();
       await fbSignOut(auth);
     } catch (e) {
-      console.warn(e);
+      console.warn('Firebase Sign-out notice:', e);
     }
     setCurrentUser(null);
     localStorage.removeItem('unidiary_user');
@@ -826,6 +967,18 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     };
     setSemesters(prev => [...prev, newSem]);
     setActiveSemesterId(id);
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured()) {
+      asyncSupabase(client.from('semesters').upsert({
+        id,
+        user_id: newSem.userId,
+        name: newSem.name,
+        academic_year: newSem.academicYear,
+        start_date: newSem.startDate,
+        end_date: newSem.endDate,
+        status: newSem.status
+      }, { onConflict: 'id' }));
+    }
     try {
       if (auth.currentUser) {
         await setDoc(doc(db, `users/${auth.currentUser.uid}/semesters`, id), newSem);
@@ -850,6 +1003,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         setActiveSemesterId(remaining[0].id);
       }
     }
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured()) {
+      asyncSupabase(client.from('semesters').delete().eq('id', id));
+    }
     return { success: true };
   };
 
@@ -866,6 +1023,22 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       createdAt: new Date().toISOString()
     };
     setCourses(prev => [...prev, newCourse]);
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured()) {
+      asyncSupabase(client.from('courses').upsert({
+        id,
+        semester_id: activeSemesterId,
+        user_id: newCourse.userId,
+        name: newCourse.name,
+        code: newCourse.code,
+        instructor: newCourse.instructor,
+        room: newCourse.room,
+        credit_hours: newCourse.creditHours,
+        syllabus_summary: newCourse.syllabusSummary,
+        is_archived: false,
+        is_deleted: false
+      }, { onConflict: 'id' }));
+    }
     try {
       if (auth.currentUser) {
         await setDoc(doc(db, `users/${auth.currentUser.uid}/courses`, id), newCourse);
@@ -877,6 +1050,19 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const updateCourse = async (id: string, updates: Partial<Course>) => {
     setCourses(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured()) {
+      const updatePayload: Record<string, any> = {};
+      if (updates.name !== undefined) updatePayload.name = updates.name;
+      if (updates.code !== undefined) updatePayload.code = updates.code;
+      if (updates.instructor !== undefined) updatePayload.instructor = updates.instructor;
+      if (updates.room !== undefined) updatePayload.room = updates.room;
+      if (updates.creditHours !== undefined) updatePayload.credit_hours = updates.creditHours;
+      if (updates.syllabusSummary !== undefined) updatePayload.syllabus_summary = updates.syllabusSummary;
+      if (updates.isArchived !== undefined) updatePayload.is_archived = updates.isArchived;
+      if (updates.isDeleted !== undefined) updatePayload.is_deleted = updates.isDeleted;
+      asyncSupabase(client.from('courses').update(updatePayload).eq('id', id));
+    }
     try {
       if (auth.currentUser) {
         await updateDoc(doc(db, `users/${auth.currentUser.uid}/courses`, id), updates);
@@ -896,6 +1082,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     if (permanent) {
       setCourses(prev => prev.filter(c => c.id !== id));
+      const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+      if (client && isSupabaseConfigured()) {
+        asyncSupabase(client.from('courses').delete().eq('id', id));
+      }
       try {
         await fetch(`/api/courses/${id}`, {
           method: 'DELETE',
@@ -960,28 +1150,13 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         fetch('/api/quizzes', { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       if (resA?.assignments && Array.isArray(resA.assignments)) {
-        setAssignments(prev => {
-          const map = new Map<string, Assignment>();
-          prev.forEach(item => map.set(item.id, item));
-          resA.assignments.forEach((item: Assignment) => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        setAssignments(resA.assignments);
       }
       if (resL?.lectures && Array.isArray(resL.lectures)) {
-        setLectures(prev => {
-          const map = new Map<string, Lecture>();
-          prev.forEach(item => map.set(item.id, item));
-          resL.lectures.forEach((item: Lecture) => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        setLectures(resL.lectures);
       }
       if (resQ?.quizzes && Array.isArray(resQ.quizzes)) {
-        setQuizzes(prev => {
-          const map = new Map<string, Quiz>();
-          prev.forEach(item => map.set(item.id, item));
-          resQ.quizzes.forEach((item: Quiz) => map.set(item.id, item));
-          return Array.from(map.values());
-        });
+        setQuizzes(resQ.quizzes);
       }
     } catch (err) {
       console.warn('Sync server records notice:', err);
@@ -1603,6 +1778,49 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return { success: true };
   };
 
+  /**
+   * ADMIN ONLY: Permanently delete all assignments, quizzes, and lectures of all subjects, making everything zero.
+   */
+  const deleteAllCoursework = async (): Promise<{ success: boolean; error?: string }> => {
+    const isAdmin = currentUser?.role === 'admin';
+    if (!isAdmin) {
+      return { success: false, error: 'Forbidden: Only an Academic Administrator can clear all subject coursework.' };
+    }
+
+    setAssignments([]);
+    setLectures([]);
+    setQuizzes([]);
+    setSelectedAssignmentDetail(null);
+    setSelectedQuizDetail(null);
+    setSelectedLectureDetail(null);
+    setSelectedSubjectPopupItem(null);
+
+    localStorage.setItem('unidiary_assignments_v4', '[]');
+    localStorage.setItem('unidiary_lectures_v4', '[]');
+    localStorage.setItem('unidiary_quizzes_v4', '[]');
+    localStorage.removeItem('unidiary_assignments_v3');
+    localStorage.removeItem('unidiary_lectures_v3');
+    localStorage.removeItem('unidiary_quizzes_v3');
+
+    try {
+      await fetch('/api/admin/coursework/clear-all', {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+    } catch (err) {
+      console.warn('Clear coursework sync notice:', err);
+    }
+
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured()) {
+      asyncSupabase(client.from('assignments').delete().neq('id', 'keep_none'));
+      asyncSupabase(client.from('lectures').delete().neq('id', 'keep_none'));
+      asyncSupabase(client.from('quizzes').delete().neq('id', 'keep_none'));
+    }
+
+    return { success: true };
+  };
+
   // Chat / AI Tutor
   const addChatMessage = async (msg: Omit<ChatMessage, 'id' | 'userId' | 'timestamp'>) => {
     const id = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -1613,6 +1831,21 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       timestamp: new Date().toISOString()
     };
     setChatMessages(prev => [...prev, newMsg]);
+
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured() && currentUser) {
+      asyncSupabase(client.from('chat_messages').upsert({
+        id,
+        user_id: newMsg.userId,
+        course_id: (newMsg as any).courseId || null,
+        role: newMsg.role,
+        persona: newMsg.persona,
+        model: newMsg.model,
+        content: newMsg.content,
+        timestamp: newMsg.timestamp
+      }, { onConflict: 'id' }));
+    }
+
     try {
       if (auth.currentUser) {
         await setDoc(doc(db, `users/${auth.currentUser.uid}/chatMessages`, id), newMsg);
@@ -1625,6 +1858,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   const clearChatHistory = async () => {
     setChatMessages([]);
     localStorage.removeItem('unidiary_chat');
+    const client = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (client && isSupabaseConfigured() && currentUser) {
+      asyncSupabase(client.from('chat_messages').delete().eq('user_id', currentUser.userId));
+    }
   };
 
   const navigateToCourse = (courseId: string, section: 'overview' | 'assignments' | 'quizzes' | 'lectures' = 'assignments') => {
@@ -1709,6 +1946,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       toggleQuizPin,
       deleteQuiz,
       restoreQuiz,
+      deleteAllCoursework,
       chatMessages,
       addChatMessage,
       clearChatHistory,

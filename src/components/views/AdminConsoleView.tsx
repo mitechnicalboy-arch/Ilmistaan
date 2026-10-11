@@ -27,6 +27,7 @@ export const AdminConsoleView: React.FC = () => {
     toggleUserSuspension,
     deleteUser,
     emptyTrash,
+    deleteAllCoursework,
     courses, 
     assignments, 
     lectures, 
@@ -75,6 +76,28 @@ export const AdminConsoleView: React.FC = () => {
         const res = await emptyTrash();
         setPurgeSuccessMsg(`Successfully purged ${res.count} soft-deleted records from the database.`);
         setTimeout(() => setPurgeSuccessMsg(null), 5000);
+      }
+    });
+  };
+
+  const totalCourseworkCount = assignments.length + lectures.length + quizzes.length;
+
+  const handleClearAllCoursework = () => {
+    requestConfirmation({
+      title: 'Admin: Clear All Subject Coursework',
+      message: `Administrator Authority: Are you sure you want to permanently delete all assigned assignments (${assignments.length}), quizzes (${quizzes.length}), and lectures (${lectures.length}) across all subjects and set all counts to zero? This operation cannot be undone.`,
+      confirmText: 'Delete All & Set to 0',
+      isAdminAction: true,
+      isDestructive: true,
+      onConfirm: async () => {
+        const res = await deleteAllCoursework();
+        if (res.success) {
+          setPurgeSuccessMsg('Successfully deleted all assignments, quizzes, and lectures across all subjects. All coursework counts are now zero.');
+          setTimeout(() => setPurgeSuccessMsg(null), 5000);
+        } else {
+          setPurgeSuccessMsg(res.error || 'Failed to clear coursework.');
+          setTimeout(() => setPurgeSuccessMsg(null), 5000);
+        }
       }
     });
   };
@@ -196,13 +219,26 @@ export const AdminConsoleView: React.FC = () => {
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 text-xs mb-1">
-            <span>Diary Records</span>
+            <span>Coursework Records</span>
             <Database className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-            {totalDiaryRecords}
+          <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 flex items-center justify-between">
+            <span>{totalCourseworkCount}</span>
+            {totalCourseworkCount > 0 ? (
+              <button
+                onClick={handleClearAllCoursework}
+                className="text-[11px] font-sans font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                title="Delete all assignments, quizzes & lectures across all subjects"
+              >
+                Zero Out
+              </button>
+            ) : (
+              <span className="text-[10px] font-sans font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                All 0 (Zero)
+              </span>
+            )}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">Tasks, notes, exams</p>
+          <p className="text-[11px] text-slate-400 mt-1">Assignments, quizzes & lectures</p>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs">

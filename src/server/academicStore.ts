@@ -7,8 +7,11 @@ import {
 } from './normalization.ts';
 import { AuthenticatedUser } from './auth.ts';
 import { INITIAL_ASSIGNMENTS, INITIAL_LECTURES, INITIAL_QUIZZES } from '../data/initialData.ts';
-import { db, auth } from '../services/firebase.ts';
-import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { getSupabaseClient, isSupabaseConfigured } from '../services/supabase.ts';
+
+const asyncSupabase = (p: any) => {
+  Promise.resolve(p).catch(() => {});
+};
 
 export type AcademicRecordType = 'assignment' | 'lecture' | 'quiz' | 'note';
 
@@ -220,6 +223,71 @@ class AcademicStore {
     return { isDuplicate: false };
   }
 
+  private formatForSupabase(type: AcademicRecordType, record: any): Record<string, any> {
+    if (type === 'assignment') {
+      return {
+        id: record.id,
+        course_id: record.courseId,
+        user_id: record.userId,
+        semester_id: record.semesterId || null,
+        assignment_number: record.assignmentNumber || null,
+        title: record.title,
+        description: record.description || '',
+        date_assigned: record.dateAssigned || null,
+        deadline: record.deadline || new Date().toISOString(),
+        priority: record.priority || 'medium',
+        status: record.status || 'pending',
+        resource_link: record.resourceLink || null,
+        is_pinned: record.isPinned ?? false,
+        is_deleted: record.isDeleted ?? false,
+      };
+    }
+    if (type === 'lecture') {
+      return {
+        id: record.id,
+        course_id: record.courseId,
+        user_id: record.userId,
+        semester_id: record.semesterId || null,
+        lecture_number: record.lectureNumber || 1,
+        title: record.title || '',
+        date: record.date || new Date().toISOString(),
+        instructor: record.instructor || '',
+        topics_covered: record.topicsCovered || '',
+        concepts_summary: record.conceptsSummary || '',
+        homework_tasks: record.homeworkTasks || '',
+        slides_url: record.slidesUrl || null,
+        is_pinned: record.isPinned ?? false,
+        is_deleted: record.isDeleted ?? false,
+      };
+    }
+    if (type === 'quiz') {
+      return {
+        id: record.id,
+        course_id: record.courseId,
+        user_id: record.userId,
+        semester_id: record.semesterId || null,
+        quiz_number: record.quizNumber || null,
+        title: record.title,
+        assigned_date: record.assignedDate || null,
+        date: record.date || new Date().toISOString(),
+        venue: record.venue || '',
+        syllabus_topics: record.syllabusTopics || '',
+        total_marks: record.totalMarks || 10,
+        obtained_marks: record.obtainedMarks ?? null,
+        status: record.status || 'upcoming',
+        is_pinned: record.isPinned ?? false,
+        is_deleted: record.isDeleted ?? false,
+      };
+    }
+    return {
+      id: record.id,
+      course_id: record.courseId,
+      user_id: record.userId,
+      title: record.title,
+      is_deleted: record.isDeleted ?? false,
+    };
+  }
+
   /**
    * CREATE:
    * 1. Derives ownership exclusively from authenticated user session.
@@ -272,20 +340,14 @@ class AcademicStore {
       const collection = this.getCollection(type);
       collection.set(recordId, record);
 
-      // Step 6: Write-through to database in background ONLY if auth session exists
-      if (auth.currentUser) {
+      // Step 6: Write-through to Supabase database in background
+      const client = getSupabaseClient();
+      if (client && isSupabaseConfigured()) {
         try {
-          await setDoc(doc(db, `${type}s`, recordId), record, { merge: true });
-          await setDoc(doc(db, 'unique_locks', lockKey), {
-            recordId,
-            type,
-            courseId,
-            normalizedTitle: norm,
-            createdAt: now,
-          });
-        } catch (err) {
-          // Log gracefully; local transactional memory ensures safety
-        }
+          const tableName = type === 'quiz' ? 'quizzes' : `${type}s`;
+          const payload = this.formatForSupabase(type, record);
+          asyncSupabase(client.from(tableName).upsert(payload, { onConflict: 'id' }));
+        } catch (_) {}
       }
 
       return { status: 'created', record };
@@ -388,23 +450,14 @@ class AcademicStore {
 
       collection.set(id, updatedRecord);
 
-      // Database sync ONLY if auth session exists
-      if (auth.currentUser) {
+      // Supabase database sync in background
+      const client = getSupabaseClient();
+      if (client && isSupabaseConfigured()) {
         try {
-          await setDoc(doc(db, `${type}s`, id), updatedRecord, { merge: true });
-          if (newLockKey !== oldLockKey) {
-            await deleteDoc(doc(db, 'unique_locks', oldLockKey));
-            await setDoc(doc(db, 'unique_locks', newLockKey), {
-              recordId: id,
-              type,
-              courseId: targetCourseId,
-              normalizedTitle: newNorm,
-              updatedAt: updatedRecord.updatedAt,
-            });
-          }
-        } catch (err) {
-          // Safe fallback
-        }
+          const tableName = type === 'quiz' ? 'quizzes' : `${type}s`;
+          const payload = this.formatForSupabase(type, updatedRecord);
+          asyncSupabase(client.from(tableName).upsert(payload, { onConflict: 'id' }));
+        } catch (_) {}
       }
 
       return { status: 'updated', record: updatedRecord };
@@ -428,12 +481,10 @@ class AcademicStore {
 
     if (!existing) {
       if (user.role === 'admin') {
-        if (auth.currentUser) {
-          try {
-            await deleteDoc(doc(db, `${type}s`, id));
-          } catch (err) {
-            // ignore error
-          }
+        const client = getSupabaseClient();
+        if (client && isSupabaseConfigured()) {
+          const tableName = type === 'quiz' ? 'quizzes' : `${type}s`;
+          asyncSupabase(client.from(tableName).delete().eq('id', id));
         }
         return { status: 'deleted' };
       }
@@ -461,14 +512,13 @@ class AcademicStore {
       existing.isDeleted = true;
     }
 
-    // Database sync ONLY if auth session exists
-    if (auth.currentUser) {
+    // Database sync with Supabase in background
+    const client = getSupabaseClient();
+    if (client && isSupabaseConfigured()) {
       try {
-        await deleteDoc(doc(db, `${type}s`, id));
-        await deleteDoc(doc(db, 'unique_locks', lockKey));
-      } catch (err) {
-        // Safe fallback
-      }
+        const tableName = type === 'quiz' ? 'quizzes' : `${type}s`;
+        asyncSupabase(client.from(tableName).delete().eq('id', id));
+      } catch (_) {}
     }
 
     return { status: 'deleted' };
@@ -497,13 +547,12 @@ class AcademicStore {
           collection.delete(id);
           purgedCount++;
 
-          if (auth.currentUser) {
+          const client = getSupabaseClient();
+          if (client && isSupabaseConfigured()) {
             try {
-              await deleteDoc(doc(db, `${t}s`, id));
-              await deleteDoc(doc(db, 'unique_locks', lockKey));
-            } catch (e) {
-              // ignore
-            }
+              const tableName = t === 'quiz' ? 'quizzes' : `${t}s`;
+              asyncSupabase(client.from(tableName).delete().eq('id', id));
+            } catch (_) {}
           }
         }
       }
@@ -536,17 +585,47 @@ class AcademicStore {
           collection.delete(id);
           deletedCount++;
 
-          if (auth.currentUser) {
+          const client = getSupabaseClient();
+          if (client && isSupabaseConfigured()) {
             try {
-              await deleteDoc(doc(db, `${t}s`, id));
-              await deleteDoc(doc(db, 'unique_locks', lockKey));
-            } catch (e) {}
+              const tableName = t === 'quiz' ? 'quizzes' : `${t}s`;
+              asyncSupabase(client.from(tableName).delete().eq('id', id));
+            } catch (_) {}
           }
         }
       }
     }
 
     return { deletedCount };
+  }
+
+  /**
+   * Delete all coursework (assignments, lectures, quizzes) across all subjects, making everything zero.
+   */
+  public async clearAllCoursework(user: AuthenticatedUser) {
+    if (user.role !== 'admin') {
+      throw new Error('Forbidden: Only an Academic Administrator can clear all subject coursework.');
+    }
+
+    const types: AcademicRecordType[] = ['assignment', 'lecture', 'quiz'];
+    let clearedCount = 0;
+
+    for (const t of types) {
+      const collection = this.getCollection(t);
+      clearedCount += collection.size;
+      collection.clear();
+
+      const client = getSupabaseClient();
+      if (client && isSupabaseConfigured()) {
+        try {
+          const tableName = t === 'quiz' ? 'quizzes' : `${t}s`;
+          asyncSupabase(client.from(tableName).delete().neq('id', 'keep_none'));
+        } catch (_) {}
+      }
+    }
+
+    this.uniqueLocks.clear();
+    return { clearedCount, message: 'All assignments, quizzes, and lectures deleted successfully.' };
   }
 
   /**
@@ -563,3 +642,4 @@ class AcademicStore {
 }
 
 export const academicStore = new AcademicStore();
+

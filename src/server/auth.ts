@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserProfile, UserRole } from '../types/index.ts';
-import { db, auth } from '../services/firebase.ts';
-import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { getSupabaseClient, isSupabaseConfigured } from '../services/supabase.ts';
 
 export interface AuthenticatedUser {
   userId: string;
@@ -101,40 +100,20 @@ export async function syncSingleAdminToDatabase(): Promise<void> {
     localUserStore.set(SINGLE_ADMIN_ID, BOOTSTRAP_ADMIN);
   }
 
-  // Only perform Firestore Web SDK write if an authenticated Firebase session exists
-  if (!auth.currentUser) {
-    return;
-  }
-
-  try {
-    // 1. Ensure primary admin exists in Firestore
-    const adminRef = doc(db, 'users', SINGLE_ADMIN_ID);
-    await setDoc(adminRef, {
-      userId: SINGLE_ADMIN_ID,
-      email: SINGLE_ADMIN_EMAIL,
-      name: SINGLE_ADMIN_NAME,
-      role: 'admin',
-      isSuspended: false,
-      timezone: 'Asia/Karachi (GMT+5)',
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-
-    // 2. Remove obsolete demo admin account if exists in DB
+  const client = getSupabaseClient();
+  if (client && isSupabaseConfigured()) {
     try {
-      await deleteDoc(doc(db, 'users', 'usr_admin_portal'));
-    } catch (_) {}
-
-    // 3. Clean up admins collection so only single admin is registered
-    try {
-      await setDoc(doc(db, 'admins', SINGLE_ADMIN_ID), {
+      await client.from('users').upsert({
+        id: SINGLE_ADMIN_ID,
         email: SINGLE_ADMIN_EMAIL,
         name: SINGLE_ADMIN_NAME,
-        assignedAt: new Date().toISOString()
-      }, { merge: true });
-      await deleteDoc(doc(db, 'admins', 'usr_admin_portal'));
-    } catch (_) {}
-  } catch (err) {
-    // Graceful offline fallback
+        role: 'admin',
+        is_suspended: false,
+        timezone: 'Asia/Karachi (GMT+5)'
+      }, { onConflict: 'id' });
+    } catch (_) {
+      // Graceful offline fallback
+    }
   }
 }
 
@@ -158,27 +137,27 @@ export async function resolveUserFromDatabase(userId: string): Promise<Authentic
   // Check local cache first
   const cached = localUserStore.get(userId);
 
-  // Attempt Firestore fetch for live role & suspension verification
-  try {
-    const userDocRef = doc(db, 'users', userId);
-    const snap = await getDoc(userDocRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      const rawEmail = (data.email || '').toLowerCase().trim();
-      // Server-side strict check: only the exact single admin can be admin
-      const isTrueAdmin = userId === SINGLE_ADMIN_ID && rawEmail === SINGLE_ADMIN_EMAIL;
-      const user: AuthenticatedUser = {
-        userId,
-        email: data.email || 'user@university.edu',
-        name: data.name || 'User',
-        role: isTrueAdmin ? 'admin' : 'student',
-        isSuspended: data.isSuspended === true
-      };
-      localUserStore.set(userId, user);
-      return user;
+  // Attempt Supabase fetch for live role & suspension verification
+  const client = getSupabaseClient();
+  if (client && isSupabaseConfigured()) {
+    try {
+      const { data } = await client.from('users').select('*').eq('id', userId).single();
+      if (data) {
+        const rawEmail = (data.email || '').toLowerCase().trim();
+        const isTrueAdmin = userId === SINGLE_ADMIN_ID && rawEmail === SINGLE_ADMIN_EMAIL;
+        const user: AuthenticatedUser = {
+          userId,
+          email: data.email || 'user@university.edu',
+          name: data.name || 'User',
+          role: isTrueAdmin ? 'admin' : (data.role === 'admin' ? 'student' : data.role || 'student'),
+          isSuspended: Boolean(data.is_suspended)
+        };
+        localUserStore.set(userId, user);
+        return user;
+      }
+    } catch (_) {
+      // Fall through to cached store
     }
-  } catch (err) {
-    // If firestore is in offline/restricted mode, fall back to cached store
   }
 
   if (cached) {

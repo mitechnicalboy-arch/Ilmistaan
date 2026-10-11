@@ -114,7 +114,34 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
 
 -- Step 3: Define Security Helper Functions (SECURITY DEFINER in public schema)
 
--- 3.1 Check if current user is the single authorized Academic Administrator
+-- 3.0 Current caller identifier (supports Supabase Auth UID and Firebase session headers)
+CREATE OR REPLACE FUNCTION public.current_caller_id()
+RETURNS TEXT
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(
+    NULLIF((auth.uid())::text, ''),
+    current_setting('request.headers', true)::json ->> 'x-user-id'
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.current_caller_email()
+RETURNS TEXT
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT LOWER(COALESCE(
+    NULLIF(auth.jwt() ->> 'email', ''),
+    current_setting('request.headers', true)::json ->> 'x-user-email'
+  ));
+$$;
+
+-- 3.1 Check if caller is the single authorized Academic Administrator
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -123,15 +150,19 @@ STABLE
 SET search_path = public
 AS $$
   SELECT (
-    auth.role() = 'authenticated'
-    AND (
-      auth.jwt() ->> 'email' = 'muhammadirteza2024@gmail.com'
-      OR EXISTS (
-        SELECT 1 FROM public.users
-        WHERE id = (auth.uid())::text
-          AND email = 'muhammadirteza2024@gmail.com'
-          AND role = 'admin'
+    auth.role() = 'service_role'
+    OR (
+      (auth.jwt() ->> 'email' = 'muhammadirteza2024@gmail.com' OR public.current_caller_email() = 'muhammadirteza2024@gmail.com')
+      AND (
+        auth.role() = 'authenticated'
+        OR public.current_caller_id() IS NOT NULL
       )
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.users
+      WHERE id = COALESCE((auth.uid())::text, public.current_caller_id())
+        AND email = 'muhammadirteza2024@gmail.com'
+        AND role = 'admin'
     )
   );
 $$;
@@ -145,14 +176,29 @@ STABLE
 SET search_path = public
 AS $$
   SELECT (
-    auth.role() = 'authenticated'
-    AND (
-      -- Single admin is always active
-      auth.jwt() ->> 'email' = 'muhammadirteza2024@gmail.com'
-      OR NOT EXISTS (
-        SELECT 1 FROM public.users
-        WHERE id = (auth.uid())::text
-          AND is_suspended = TRUE
+    -- Single admin is always active
+    public.is_admin()
+    OR (
+      (auth.role() = 'authenticated' OR public.current_caller_id() IS NOT NULL)
+      AND (
+        auth.jwt() ->> 'email' = 'muhammadirteza2024@gmail.com'
+        OR public.current_caller_email() = 'muhammadirteza2024@gmail.com'
+        OR NOT EXISTS (
+          SELECT 1 FROM public.users
+          WHERE id = COALESCE((auth.uid())::text, public.current_caller_id())
+            AND is_suspended = TRUE
+        )
+      )
+      AND (
+        EXISTS (
+          SELECT 1 FROM public.users
+          WHERE id = COALESCE((auth.uid())::text, public.current_caller_id())
+            AND is_suspended = FALSE
+        )
+        OR NOT EXISTS (
+          SELECT 1 FROM public.users
+          WHERE id = COALESCE((auth.uid())::text, public.current_caller_id())
+        )
       )
     )
   );
@@ -170,6 +216,8 @@ AS $$
     public.is_active_user()
     AND (
       (auth.uid())::text = target_user_id
+      OR public.current_caller_id() = target_user_id
+      OR user_id = (auth.uid())::text OR public.is_admin()
       OR public.is_admin()
     )
   );
@@ -469,3 +517,10 @@ ON CONFLICT (id) DO UPDATE SET
   role = 'admin',
   is_suspended = FALSE,
   email = 'muhammadirteza2024@gmail.com';
+
+-- ============================================================================
+-- Step 11: Grant Schema Access
+-- ============================================================================
+GRANT USAGE ON SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;

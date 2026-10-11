@@ -167,123 +167,133 @@ apiRouter.get('/auth/me', requireAuthentication, (req: AuthenticatedRequest, res
 // 2. GENERIC HANDLERS FOR ACADEMIC RESOURCES
 // ==========================================
 
+function getPluralName(type: AcademicRecordType): string {
+  if (type === 'quiz') return 'quizzes';
+  return `${type}s`;
+}
+
 function createResourceHandlers(type: AcademicRecordType, label: string) {
-  // LIST
-  apiRouter.get(`/${type}s`, requireAuthentication, (req: AuthenticatedRequest, res: Response) => {
-    const courseId = req.query.courseId as string | undefined;
-    const records = academicStore.listRecords(type, courseId);
-    res.json({ [type + 's']: records });
-  });
+  const plural = getPluralName(type);
+  const routePrefixes = Array.from(new Set([plural, `${type}s`]));
 
-  // GET SINGLE
-  apiRouter.get(`/${type}s/:id`, requireAuthentication, (req: AuthenticatedRequest, res: Response) => {
-    const record = academicStore.getRecord(type, req.params.id);
-    if (!record) {
-      res.status(404).json({ error: `${label} not found.` });
-      return;
-    }
-    res.json({ [type]: record });
-  });
+  routePrefixes.forEach(p => {
+    // LIST
+    apiRouter.get(`/${p}`, requireAuthentication, (req: AuthenticatedRequest, res: Response) => {
+      const courseId = req.query.courseId as string | undefined;
+      const records = academicStore.listRecords(type, courseId);
+      res.json({ [plural]: records });
+    });
 
-  // CREATE
-  apiRouter.post(`/${type}s`, requireAuthentication, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { courseId, title, topicsCovered } = req.body;
-      const effectiveTitle = title || topicsCovered;
-
-      if (!courseId || !effectiveTitle) {
-        res.status(400).json({ error: `Both courseId and title are required for ${label}.` });
-        return;
-      }
-
-      // CRITICAL SECURITY REQUIREMENT:
-      // Ownership is derived exclusively from req.user. Never trust client user_id!
-      const result = await academicStore.createRecord(type, req.body, req.user!);
-
-      if (result.status === 'duplicate') {
-        const errorMsg = result.reason || `This ${label.toLowerCase()} has already been listed for this subject. Duplicate submissions are not allowed.`;
-        res.status(409).json({
-          error: errorMsg,
-          code: 'DUPLICATE_RECORD',
-          message: errorMsg,
-          reason: result.reason,
-          existingRecord: result.existingRecord
-        });
-        return;
-      }
-
-      res.status(201).json({
-        message: `${label} created successfully.`,
-        [type]: result.record
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    }
-  });
-
-  // UPDATE (PUT & PATCH)
-  const handleUpdate = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const result = await academicStore.updateRecord(type, req.params.id, req.body, req.user!);
-
-      if (result.status === 'not_found') {
+    // GET SINGLE
+    apiRouter.get(`/${p}/:id`, requireAuthentication, (req: AuthenticatedRequest, res: Response) => {
+      const record = academicStore.getRecord(type, req.params.id);
+      if (!record) {
         res.status(404).json({ error: `${label} not found.` });
         return;
       }
+      res.json({ [type]: record });
+    });
 
-      if (result.status === 'forbidden') {
-        res.status(403).json({
-          error: `Forbidden: Only the author who added this ${label.toLowerCase()} or an Administrator has permission to edit it.`,
-          code: 'ACCESS_DENIED'
+    // CREATE
+    apiRouter.post(`/${p}`, requireAuthentication, async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const { courseId, title, topicsCovered } = req.body;
+        const effectiveTitle = title || topicsCovered;
+
+        if (!courseId || !effectiveTitle) {
+          res.status(400).json({ error: `Both courseId and title are required for ${label}.` });
+          return;
+        }
+
+        // CRITICAL SECURITY REQUIREMENT:
+        // Ownership is derived exclusively from req.user. Never trust client user_id!
+        const result = await academicStore.createRecord(type, req.body, req.user!);
+
+        if (result.status === 'duplicate') {
+          const errorMsg = result.reason || `This ${label.toLowerCase()} has already been listed for this subject. Duplicate submissions are not allowed.`;
+          res.status(409).json({
+            error: errorMsg,
+            code: 'DUPLICATE_RECORD',
+            message: errorMsg,
+            reason: result.reason,
+            existingRecord: result.existingRecord
+          });
+          return;
+        }
+
+        res.status(201).json({
+          message: `${label} created successfully.`,
+          [type]: result.record
         });
-        return;
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Internal server error' });
       }
+    });
 
-      if (result.status === 'duplicate') {
-        const errorMsg = (result as any).reason || `This ${label.toLowerCase()} title or sequence already exists for this subject.`;
-        res.status(409).json({
-          error: errorMsg,
-          code: 'DUPLICATE_RECORD',
-          reason: (result as any).reason,
-          existingRecord: result.existingRecord
+    // UPDATE (PUT & PATCH)
+    const handleUpdate = async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const result = await academicStore.updateRecord(type, req.params.id, req.body, req.user!);
+
+        if (result.status === 'not_found') {
+          res.status(404).json({ error: `${label} not found.` });
+          return;
+        }
+
+        if (result.status === 'forbidden') {
+          res.status(403).json({
+            error: `Forbidden: Only the author who added this ${label.toLowerCase()} or an Administrator has permission to edit it.`,
+            code: 'ACCESS_DENIED'
+          });
+          return;
+        }
+
+        if (result.status === 'duplicate') {
+          const errorMsg = (result as any).reason || `This ${label.toLowerCase()} title or sequence already exists for this subject.`;
+          res.status(409).json({
+            error: errorMsg,
+            code: 'DUPLICATE_RECORD',
+            reason: (result as any).reason,
+            existingRecord: result.existingRecord
+          });
+          return;
+        }
+
+        res.json({
+          message: `${label} updated successfully.`,
+          [type]: result.record
         });
-        return;
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Internal server error' });
       }
+    };
 
-      res.json({
-        message: `${label} updated successfully.`,
-        [type]: result.record
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    }
-  };
+    apiRouter.patch(`/${p}/:id`, requireAuthentication, handleUpdate);
+    apiRouter.put(`/${p}/:id`, requireAuthentication, handleUpdate);
 
-  apiRouter.patch(`/${type}s/:id`, requireAuthentication, handleUpdate);
-  apiRouter.put(`/${type}s/:id`, requireAuthentication, handleUpdate);
+    // DELETE
+    apiRouter.delete(`/${p}/:id`, requireAuthentication, async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const result = await academicStore.deleteRecord(type, req.params.id, req.user!);
 
-  // DELETE
-  apiRouter.delete(`/${type}s/:id`, requireAuthentication, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const result = await academicStore.deleteRecord(type, req.params.id, req.user!);
+        if (result.status === 'not_found') {
+          res.status(404).json({ error: `${label} not found.` });
+          return;
+        }
 
-      if (result.status === 'not_found') {
-        res.status(404).json({ error: `${label} not found.` });
-        return;
+        if (result.status === 'forbidden') {
+          res.status(403).json({
+            error: `Forbidden: Only the author who added this ${label.toLowerCase()} or an Administrator has permission to delete it.`,
+            code: 'ACCESS_DENIED'
+          });
+          return;
+        }
+
+        res.json({ message: `${label} deleted successfully.` });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Internal server error' });
       }
-
-      if (result.status === 'forbidden') {
-        res.status(403).json({
-          error: `Forbidden: Only the author who added this ${label.toLowerCase()} or an Administrator has permission to delete it.`,
-          code: 'ACCESS_DENIED'
-        });
-        return;
-      }
-
-      res.json({ message: `${label} deleted successfully.` });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Internal server error' });
-    }
+    });
   });
 }
 
@@ -405,12 +415,12 @@ apiRouter.delete('/admin/users/:userId', requireAuthentication, requireAdmin, as
     // Non-fatal
   }
 
-  // Database deletion
+  // Database deletion in Supabase
   try {
-    const { doc, deleteDoc } = await import('firebase/firestore');
-    const { db, auth } = await import('../services/firebase.ts');
-    if (auth.currentUser) {
-      await deleteDoc(doc(db, 'users', userId));
+    const { getSupabaseClient, isSupabaseConfigured } = await import('../services/supabase.ts');
+    const client = getSupabaseClient();
+    if (client && isSupabaseConfigured()) {
+      await client.from('users').delete().eq('id', userId);
     }
   } catch (err) {
     // Non-fatal fallback
@@ -438,19 +448,38 @@ apiRouter.post('/admin/trash/purge-all', requireAuthentication, requireAdmin, as
 });
 
 /**
+ * ADMIN ONLY: Delete all coursework (assignments, quizzes, lectures) of all subjects and set everything to zero.
+ */
+apiRouter.post('/admin/coursework/clear-all', requireAuthentication, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await academicStore.clearAllCoursework(req.user!);
+    res.json({
+      message: result.message,
+      clearedCount: result.clearedCount,
+      assignments: 0,
+      lectures: 0,
+      quizzes: 0
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear coursework.' });
+  }
+});
+
+
+/**
  * Course deletion endpoint: Admin can delete any course, student can delete their own
  */
 apiRouter.delete('/courses/:id', requireAuthentication, async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const isAdmin = req.user?.role === 'admin';
-  // If not admin, verify ownership or permit
   try {
-    const { doc, deleteDoc } = await import('firebase/firestore');
-    const { db, auth } = await import('../services/firebase.ts');
-    if (auth.currentUser) {
-      await deleteDoc(doc(db, 'courses', id));
-      if (req.user?.userId) {
-        await deleteDoc(doc(db, `users/${req.user.userId}/courses`, id));
+    const { getSupabaseClient, isSupabaseConfigured } = await import('../services/supabase.ts');
+    const client = getSupabaseClient();
+    if (client && isSupabaseConfigured()) {
+      if (isAdmin) {
+        await client.from('courses').delete().eq('id', id);
+      } else {
+        await client.from('courses').delete().eq('id', id).eq('user_id', req.user!.userId);
       }
     }
     res.json({ message: 'Course deleted successfully.', courseId: id });
