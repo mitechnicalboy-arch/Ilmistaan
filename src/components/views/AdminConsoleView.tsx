@@ -13,7 +13,8 @@ import {
   Trash2,
   Flame,
   Check,
-  ArrowRight
+  ArrowRight,
+  RotateCcw
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { formatDate } from '../../utils/dateUtils';
@@ -23,6 +24,7 @@ export const AdminConsoleView: React.FC = () => {
   const { 
     currentUser, 
     allUsers, 
+    refreshUsers,
     updateUserRole, 
     toggleUserSuspension,
     deleteUser,
@@ -274,15 +276,25 @@ export const AdminConsoleView: React.FC = () => {
             </p>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search by name or email..."
-              value={studentSearch}
-              onChange={e => setStudentSearch(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
-            />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refreshUsers()}
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+              title="Refresh student accounts from database"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+              <span>Sync Accounts</span>
+            </button>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search by name or email..."
+                value={studentSearch}
+                onChange={e => setStudentSearch(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
+              />
+            </div>
           </div>
         </div>
 

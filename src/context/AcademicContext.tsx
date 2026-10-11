@@ -37,6 +37,7 @@ import {
   doc, 
   setDoc, 
   getDoc, 
+  getDocs,
   collection, 
   onSnapshot,
   query,
@@ -65,6 +66,7 @@ export interface AcademicContextType {
   currentUser: UserProfile | null;
   setCurrentUser: (user: UserProfile | null) => void;
   allUsers: UserProfile[];
+  refreshUsers: () => Promise<void>;
   updateUserRole: (userId: string, role: 'student' | 'admin') => Promise<void>;
   toggleUserSuspension: (userId: string) => Promise<void>;
   deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
@@ -220,7 +222,20 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return null;
   });
 
-  const [allUsers, setAllUsers] = useState<UserProfile[]>(INITIAL_PORTAL_USERS);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
+    const saved = localStorage.getItem('unidiary_all_users');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as UserProfile[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Ensure Single Admin is present and correctly tagged
+          const hasAdmin = parsed.some(u => u.email.toLowerCase() === 'muhammadirteza2024@gmail.com');
+          return hasAdmin ? parsed : [SINGLE_ADMIN_ACCOUNT, ...parsed];
+        }
+      } catch (_) {}
+    }
+    return INITIAL_PORTAL_USERS;
+  });
 
   const [semesters, setSemesters] = useState<Semester[]>(() => {
     const saved = localStorage.getItem('unidiary_semesters');
@@ -374,6 +389,10 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [semesters]);
 
   useEffect(() => {
+    localStorage.setItem('unidiary_all_users', JSON.stringify(allUsers));
+  }, [allUsers]);
+
+  useEffect(() => {
     localStorage.setItem('unidiary_courses_v5', JSON.stringify(courses));
     // Persist updated courses to Supabase database and Firestore
     const syncCoursesToDb = async () => {
@@ -518,10 +537,212 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_token', token);
         localStorage.setItem('unidiary_user', JSON.stringify(profile));
         setCurrentUser(profile);
+
+        // Ensure profile exists in Firestore users collection
+        try {
+          await setDoc(doc(db, 'users', fbUser.uid), {
+            userId: profile.userId,
+            email: profile.email,
+            name: profile.name,
+            role: profile.role,
+            isSuspended: profile.isSuspended,
+            timezone: profile.timezone,
+            createdAt: profile.createdAt
+          }, { merge: true });
+        } catch (_) {}
+
+        // Add to local allUsers state
+        setAllUsers(prev => {
+          const exists = prev.some(u => u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase());
+          if (!exists) {
+            return [...prev, profile];
+          }
+          return prev.map(u => (u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase()) ? { ...u, ...profile } : u);
+        });
+
+        // If logged in as administrator, synchronize directory from Firestore & server API
+        if (isAdmin) {
+          try {
+            const usersSnap = await getDocs(collection(db, 'users'));
+            if (!usersSnap.empty) {
+              const loadedUsers: UserProfile[] = [];
+              usersSnap.forEach(d => {
+                const data = d.data();
+                if (data && data.userId && data.email) {
+                  const isOfficialAdmin = data.email.toLowerCase() === 'muhammadirteza2024@gmail.com' || data.userId === 'usr_admin_irteza';
+                  loadedUsers.push({
+                    userId: data.userId,
+                    email: data.email,
+                    name: data.name || 'Student',
+                    role: isOfficialAdmin ? 'admin' : (data.role === 'admin' ? 'student' : data.role || 'student'),
+                    isSuspended: Boolean(data.isSuspended),
+                    timezone: data.timezone || 'Asia/Karachi (GMT+5)',
+                    createdAt: data.createdAt || new Date().toISOString()
+                  });
+                }
+              });
+
+              setAllUsers(prev => {
+                const map = new Map<string, UserProfile>();
+                // Always have Single Admin
+                map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+                prev.forEach(u => map.set(u.userId, u));
+                loadedUsers.forEach(u => map.set(u.userId, u));
+                return Array.from(map.values());
+              });
+            }
+          } catch (_) {
+            // Non-fatal if offline
+          }
+
+          // Also check server /api/admin/users if full-stack server is active
+          try {
+            const adminRes = await fetch('/api/admin/users', {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-user-id': fbUser.uid
+              }
+            });
+            if (adminRes.ok) {
+              const adminData = await adminRes.json();
+              if (adminData?.users && Array.isArray(adminData.users)) {
+                setAllUsers(prev => {
+                  const map = new Map<string, UserProfile>();
+                  map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+                  prev.forEach(u => map.set(u.userId, u));
+                  adminData.users.forEach((u: any) => {
+                    const isOfficialAdmin = u.email?.toLowerCase() === 'muhammadirteza2024@gmail.com';
+                    map.set(u.userId, {
+                      userId: u.userId,
+                      email: u.email,
+                      name: u.name,
+                      role: isOfficialAdmin ? 'admin' : 'student',
+                      isSuspended: Boolean(u.isSuspended),
+                      timezone: u.timezone || 'Asia/Karachi (GMT+5)',
+                      createdAt: u.createdAt || new Date().toISOString()
+                    });
+                  });
+                  return Array.from(map.values());
+                });
+              }
+            }
+          } catch (_) {}
+        }
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // Dedicated function to refresh all users across Firestore, Server API, and LocalStorage
+  const refreshUsers = useCallback(async () => {
+    // 1. Fetch from Firestore if user has admin permissions
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      if (!usersSnap.empty) {
+        const loaded: UserProfile[] = [];
+        usersSnap.forEach(d => {
+          const data = d.data();
+          if (data && data.userId && data.email) {
+            const isOfficialAdmin = data.email.toLowerCase() === 'muhammadirteza2024@gmail.com' || data.userId === 'usr_admin_irteza';
+            loaded.push({
+              userId: data.userId,
+              email: data.email,
+              name: data.name || 'Student',
+              role: isOfficialAdmin ? 'admin' : (data.role === 'admin' ? 'student' : data.role || 'student'),
+              isSuspended: Boolean(data.isSuspended),
+              timezone: data.timezone || 'Asia/Karachi (GMT+5)',
+              createdAt: data.createdAt || new Date().toISOString()
+            });
+          }
+        });
+
+        setAllUsers(prev => {
+          const map = new Map<string, UserProfile>();
+          map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+          prev.forEach(u => map.set(u.userId, u));
+          loaded.forEach(u => map.set(u.userId, u));
+          return Array.from(map.values());
+        });
+      }
+    } catch (_) {}
+
+    // 2. Fetch from backend /api/admin/users if full-stack server is running
+    try {
+      const token = localStorage.getItem('unidiary_token');
+      const uid = currentUser?.userId || auth.currentUser?.uid || 'usr_admin_irteza';
+      const res = await fetch('/api/admin/users', {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : `Bearer session_${uid}_admin`,
+          'x-user-id': uid
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.users && Array.isArray(data.users)) {
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+            prev.forEach(u => map.set(u.userId, u));
+            data.users.forEach((u: any) => {
+              const isOfficialAdmin = u.email?.toLowerCase() === 'muhammadirteza2024@gmail.com';
+              map.set(u.userId, {
+                userId: u.userId,
+                email: u.email,
+                name: u.name,
+                role: isOfficialAdmin ? 'admin' : 'student',
+                isSuspended: Boolean(u.isSuspended),
+                timezone: u.timezone || 'Asia/Karachi (GMT+5)',
+                createdAt: u.createdAt || new Date().toISOString()
+              });
+            });
+            return Array.from(map.values());
+          });
+        }
+      }
+    } catch (_) {}
+  }, [currentUser]);
+
+  // Real-time Firestore onSnapshot listener for users collection when user is Admin
+  useEffect(() => {
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.email?.toLowerCase() === 'muhammadirteza2024@gmail.com';
+    if (!isAdmin) return;
+
+    try {
+      const q = collection(db, 'users');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          const loaded: UserProfile[] = [];
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data();
+            if (data && data.userId && data.email) {
+              const isOfficialAdmin = data.email.toLowerCase() === 'muhammadirteza2024@gmail.com' || data.userId === 'usr_admin_irteza';
+              loaded.push({
+                userId: data.userId,
+                email: data.email,
+                name: data.name || 'Student',
+                role: isOfficialAdmin ? 'admin' : (data.role === 'admin' ? 'student' : data.role || 'student'),
+                isSuspended: Boolean(data.isSuspended),
+                timezone: data.timezone || 'Asia/Karachi (GMT+5)',
+                createdAt: data.createdAt || new Date().toISOString()
+              });
+            }
+          });
+
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+            prev.forEach(u => map.set(u.userId, u));
+            loaded.forEach(u => map.set(u.userId, u));
+            return Array.from(map.values());
+          });
+        }
+      }, (error) => {
+        console.warn('Real-time users directory notice:', error?.message);
+      });
+
+      return () => unsubscribe();
+    } catch (_) {}
+  }, [currentUser]);
 
   // Filtered active records (excluding soft-deleted)
   const activeSemester = useMemo(() => {
@@ -576,6 +797,26 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       localStorage.setItem('unidiary_token', token);
       localStorage.setItem('unidiary_user', JSON.stringify(profile));
       setCurrentUser(profile);
+
+      // Sync student profile to Firestore users collection
+      try {
+        await setDoc(doc(db, 'users', profile.userId), {
+          userId: profile.userId,
+          email: profile.email,
+          name: profile.name,
+          role: profile.role,
+          isSuspended: profile.isSuspended,
+          timezone: profile.timezone,
+          createdAt: profile.createdAt
+        }, { merge: true });
+      } catch (_) {}
+
+      // Update allUsers in local state
+      setAllUsers(prev => {
+        const exists = prev.some(u => u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase());
+        if (!exists) return [...prev, profile];
+        return prev.map(u => (u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase()) ? { ...u, ...profile } : u);
+      });
 
       // Sync student profile to Supabase database
       const client = getSupabaseClient(profile.userId, profile.email);
@@ -773,6 +1014,26 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_user', JSON.stringify(studentProfile));
         setCurrentUser(studentProfile);
 
+        // Sync student profile to Firestore users collection
+        try {
+          await setDoc(doc(db, 'users', studentProfile.userId), {
+            userId: studentProfile.userId,
+            email: studentProfile.email,
+            name: studentProfile.name,
+            role: studentProfile.role,
+            isSuspended: studentProfile.isSuspended,
+            timezone: studentProfile.timezone,
+            createdAt: studentProfile.createdAt
+          }, { merge: true });
+        } catch (_) {}
+
+        // Update allUsers in local state
+        setAllUsers(prev => {
+          const exists = prev.some(u => u.userId === studentProfile.userId || u.email.toLowerCase() === studentProfile.email.toLowerCase());
+          if (!exists) return [...prev, studentProfile];
+          return prev.map(u => (u.userId === studentProfile.userId || u.email.toLowerCase() === studentProfile.email.toLowerCase()) ? { ...u, ...studentProfile } : u);
+        });
+
         const client = getSupabaseClient(studentProfile.userId, studentProfile.email);
         if (client && isSupabaseConfigured()) {
           try {
@@ -863,6 +1124,26 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       localStorage.setItem('unidiary_token', effectiveToken);
       localStorage.setItem('unidiary_user', JSON.stringify(profile));
       setCurrentUser(profile);
+
+      // Sync student profile to Firestore users collection
+      try {
+        await setDoc(doc(db, 'users', profile.userId), {
+          userId: profile.userId,
+          email: profile.email,
+          name: profile.name,
+          role: profile.role,
+          isSuspended: profile.isSuspended,
+          timezone: profile.timezone,
+          createdAt: profile.createdAt
+        }, { merge: true });
+      } catch (_) {}
+
+      // Update allUsers in local state
+      setAllUsers(prev => {
+        const exists = prev.some(u => u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase());
+        if (!exists) return [...prev, profile];
+        return prev.map(u => (u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase()) ? { ...u, ...profile } : u);
+      });
 
       const client = getSupabaseClient(profile.userId, profile.email);
       if (client && isSupabaseConfigured()) {
@@ -1966,6 +2247,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
       currentUser,
       setCurrentUser,
       allUsers,
+      refreshUsers,
       updateUserRole,
       toggleUserSuspension,
       deleteUser,
