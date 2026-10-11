@@ -7,7 +7,8 @@ import {
   BookMarked,
   Shield,
   CloudCheck,
-  CloudOff
+  CloudOff,
+  User
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 
@@ -17,6 +18,7 @@ interface TopHeaderProps {
 
 export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleMobileMenu }) => {
   const { 
+    currentUser,
     activeView, 
     setActiveView, 
     activeSemester, 
@@ -73,11 +75,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleMobileMenu }) => {
       </div>
 
       {/* Right: Quick Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
         {/* Quick Launch AI Tutor */}
         <button
           onClick={() => setActiveView('tutor')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
             activeView === 'tutor'
               ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
               : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
@@ -91,11 +93,36 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleMobileMenu }) => {
         {/* New Entry Action Button */}
         <button
           onClick={() => setIsQuickAddOpen(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs active:scale-[0.98]"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors shadow-xs active:scale-[0.98] cursor-pointer"
           title="Quick Add Assignment, Lecture, or Quiz (N)"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>New Entry</span>
+          <span className="hidden xs:inline sm:inline">New</span>
+          <span className="hidden sm:inline">Entry</span>
+        </button>
+
+        {/* User Profile Avatar / Icon Button */}
+        <button
+          onClick={() => setActiveView('profile')}
+          className={`relative flex items-center justify-center p-0.5 rounded-full border transition-all cursor-pointer ${
+            activeView === 'profile'
+              ? 'ring-2 ring-emerald-500 border-emerald-600 bg-emerald-50'
+              : 'border-slate-200 hover:border-emerald-400 bg-white'
+          }`}
+          title={`${currentUser?.name || 'User'} (${currentUser?.role === 'admin' ? 'Administrator' : 'Student'})`}
+          aria-label="User Profile"
+        >
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-200 shadow-2xs">
+            {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : <User className="w-4 h-4 text-emerald-700" />}
+          </div>
+          {currentUser?.role === 'admin' && (
+            <span 
+              className="absolute -bottom-0.5 -right-0.5 bg-amber-500 text-white text-[8px] font-bold px-1 rounded-full border border-white shadow-2xs"
+              title="Administrator"
+            >
+              A
+            </span>
+          )}
         </button>
       </div>
     </header>

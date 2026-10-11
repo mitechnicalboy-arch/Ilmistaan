@@ -146,7 +146,7 @@ const PortalContent: React.FC = () => {
             onClick={() => setIsMobileMenuOpen(false)}
           />
           <div className="relative z-10 w-72 bg-white h-full shadow-2xl">
-            <Sidebar />
+            <Sidebar onClose={() => setIsMobileMenuOpen(false)} />
           </div>
         </div>
       )}

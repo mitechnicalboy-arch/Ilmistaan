@@ -15,12 +15,17 @@ import {
   LogOut, 
   Plus, 
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  X
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import crestImage from '../../assets/images/university_portal_crest_1791113487512.jpg';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const { 
     currentUser, 
     activeView, 
@@ -87,23 +92,35 @@ export const Sidebar: React.FC = () => {
   return (
     <aside className="w-64 bg-white border-r border-slate-200/80 flex flex-col h-screen select-none shrink-0 sticky top-0 z-30">
       {/* Brand Zone */}
-      <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg overflow-hidden border border-emerald-200 shadow-xs shrink-0 bg-emerald-50 flex items-center justify-center">
-          <img 
-            src={crestImage} 
-            alt="University Crest" 
-            className="w-full h-full object-cover" 
-            referrerPolicy="no-referrer"
-          />
+      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-lg overflow-hidden border border-emerald-200 shadow-xs shrink-0 bg-emerald-50 flex items-center justify-center">
+            <img 
+              src={crestImage} 
+              alt="University Crest" 
+              className="w-full h-full object-cover" 
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-bold tracking-tight text-slate-900 truncate tracking-wide">
+              ILMISTAAN
+            </h1>
+            <p className="text-[11px] text-slate-500 truncate font-medium">
+              Dawoodian's Portal
+            </p>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-bold tracking-tight text-slate-900 truncate tracking-wide">
-            ILMISTAAN
-          </h1>
-          <p className="text-[11px] text-slate-500 truncate font-medium">
-            Dawoodian's Portal
-          </p>
-        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors cursor-pointer ml-1"
+            title="Close menu"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Semester Switcher Dropdown */}
@@ -193,8 +210,11 @@ export const Sidebar: React.FC = () => {
           return (
             <button
               key={item.id}
-              onClick={() => setActiveView(item.id as any)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors text-left ${
+              onClick={() => {
+                setActiveView(item.id as any);
+                if (onClose) onClose();
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors text-left cursor-pointer ${
                 isActive 
                   ? 'bg-emerald-50 text-emerald-800 font-semibold border-l-2 border-emerald-600 pl-2.5' 
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -220,10 +240,13 @@ export const Sidebar: React.FC = () => {
       <div className="p-3 border-t border-slate-100 bg-slate-50/60">
         <div className="flex items-center justify-between">
           <button 
-            onClick={() => setActiveView('profile')}
-            className="flex items-center gap-2.5 min-w-0 text-left hover:opacity-80 transition-opacity"
+            onClick={() => {
+              setActiveView('profile');
+              if (onClose) onClose();
+            }}
+            className="flex items-center gap-2.5 min-w-0 text-left hover:opacity-80 transition-opacity cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 font-semibold text-xs flex items-center justify-center shrink-0 border border-emerald-200">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 font-semibold text-xs flex items-center justify-center shrink-0 border border-emerald-200 shadow-2xs">
               {currentUser?.name?.charAt(0) || 'U'}
             </div>
             <div className="min-w-0">

@@ -4,12 +4,13 @@ import {
   BookOpen, 
   CheckSquare, 
   Calendar, 
-  Sparkles 
+  Sparkles,
+  User
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 
 export const MobileBottomNav: React.FC = () => {
-  const { activeView, setActiveView, activeAssignments } = useAcademic();
+  const { activeView, setActiveView, activeAssignments, currentUser } = useAcademic();
 
   const pendingCount = activeAssignments.filter(a => a.status !== 'completed').length;
 
@@ -19,10 +20,11 @@ export const MobileBottomNav: React.FC = () => {
     { id: 'assignments', label: 'Tasks', icon: CheckSquare, badge: pendingCount },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'tutor', label: 'AI Tutor', icon: Sparkles },
+    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-white border-t border-slate-200 flex items-center justify-around z-40 px-2 shadow-lg">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-white border-t border-slate-200 flex items-center justify-around z-40 px-1 shadow-lg">
       {items.map(item => {
         const Icon = item.icon;
         const isActive = activeView === item.id;
@@ -30,12 +32,22 @@ export const MobileBottomNav: React.FC = () => {
           <button
             key={item.id}
             onClick={() => setActiveView(item.id as any)}
-            className={`flex flex-col items-center justify-center flex-1 py-1 relative ${
+            className={`flex flex-col items-center justify-center flex-1 py-1 relative cursor-pointer ${
               isActive ? 'text-emerald-700 font-semibold' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <div className="relative">
-              <Icon className="w-4 h-4" />
+            <div className="relative flex items-center justify-center">
+              {item.id === 'profile' && currentUser?.name ? (
+                <div className={`w-5 h-5 rounded-full font-bold text-[10px] flex items-center justify-center border transition-colors ${
+                  isActive 
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' 
+                    : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                }`}>
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+              ) : (
+                <Icon className="w-4 h-4" />
+              )}
               {item.badge && item.badge > 0 ? (
                 <span className="absolute -top-1.5 -right-2 bg-emerald-600 text-white font-mono text-[9px] w-3.5 h-3.5 rounded-full flex items-center justify-center leading-none">
                   {item.badge}
@@ -49,3 +61,4 @@ export const MobileBottomNav: React.FC = () => {
     </div>
   );
 };
+
