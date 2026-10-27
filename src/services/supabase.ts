@@ -1,11 +1,21 @@
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
 import { Course, Semester, Assignment, Lecture, Quiz, UserProfile, ChatMessage } from '../types/index.ts';
 
+import { auth } from './firebase.ts';
+
+// Helper to normalize Supabase project URL and strip accidental /rest/v1 suffixes
+export const cleanSupabaseUrl = (url: string): string => {
+  if (!url) return '';
+  return url.trim().replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+};
+
 // Resolve Supabase configuration from environment variables or provided project credentials
-const supabaseUrl = 
+const rawSupabaseUrl = 
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SUPABASE_URL || import.meta.env?.NEXT_PUBLIC_SUPABASE_URL)) ||
   (typeof process !== 'undefined' && (process.env?.SUPABASE_URL || process.env?.NEXT_PUBLIC_SUPABASE_URL)) ||
   'https://lujytbmxoswazoyfvrck.supabase.co';
+
+const supabaseUrl = cleanSupabaseUrl(rawSupabaseUrl);
 
 const supabaseAnonKey = 
   (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)) ||
@@ -30,16 +40,30 @@ const supabaseServiceKey =
 // Singleton Supabase Client
 let supabaseInstance: SupabaseClient | null = null;
 
-export const getSupabaseClient = (userId?: string, email?: string): SupabaseClient | null => {
+export const getSupabaseClient = (userId?: string, email?: string, accessToken?: string): SupabaseClient | null => {
   if (!isSupabaseConfigured()) return null;
 
-  // If a specific user session is provided (e.g. authenticated Firebase student), attach custom headers
-  if (userId) {
+  // Resolve access token if not explicitly provided
+  let effectiveToken = accessToken;
+  if (!effectiveToken && typeof localStorage !== 'undefined') {
+    effectiveToken = localStorage.getItem('unidiary_fb_id_token') || localStorage.getItem('unidiary_token') || undefined;
+  }
+
+  // If a specific user session is provided (e.g. authenticated Firebase student), attach custom headers & Authorization token
+  if (userId || effectiveToken || email) {
     try {
-      const headers: Record<string, string> = {
-        'x-user-id': userId,
-        'x-user-email': (email || '').toLowerCase().trim(),
-      };
+      const headers: Record<string, string> = {};
+      if (userId) {
+        headers['x-user-id'] = userId;
+      }
+      if (email) {
+        headers['x-user-email'] = (email || '').toLowerCase().trim();
+      }
+      if (effectiveToken) {
+        headers['Authorization'] = effectiveToken.startsWith('Bearer ')
+          ? effectiveToken
+          : `Bearer ${effectiveToken}`;
+      }
       const keyToUse = supabaseServiceKey || supabaseAnonKey;
       return createClient(supabaseUrl, keyToUse, {
         global: { headers },
@@ -71,6 +95,24 @@ export const getSupabaseClient = (userId?: string, email?: string): SupabaseClie
 };
 
 export const supabase = getSupabaseClient();
+
+/**
+ * Asynchronously returns a Supabase client configured with the current Firebase user's ID token.
+ */
+export async function getAuthenticatedSupabaseClient(userId?: string, email?: string): Promise<SupabaseClient | null> {
+  let token: string | undefined = undefined;
+  try {
+    if (auth.currentUser) {
+      token = await auth.currentUser.getIdToken();
+    }
+  } catch (_) {}
+  if (!token && typeof localStorage !== 'undefined') {
+    token = localStorage.getItem('unidiary_fb_id_token') || localStorage.getItem('unidiary_token') || undefined;
+  }
+  const uid = userId || auth.currentUser?.uid;
+  const userEmail = email || auth.currentUser?.email || undefined;
+  return getSupabaseClient(uid, userEmail, token);
+}
 
 export async function testSupabaseConnectivity(): Promise<{ connected: boolean; message: string; error?: string }> {
   const client = getSupabaseClient();

@@ -307,7 +307,32 @@ createResourceHandlers('note', 'Note');
 // 3. ADMINISTRATIVE ENDPOINTS
 // ==========================================
 
-apiRouter.get('/admin/users', requireAuthentication, requireAdmin, (_req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/admin/users', requireAuthentication, requireAdmin, async (_req: AuthenticatedRequest, res: Response) => {
+  // Sync users from Supabase if configured
+  try {
+    const { getSupabaseClient, isSupabaseConfigured } = await import('../services/supabase.ts');
+    const client = getSupabaseClient();
+    if (client && isSupabaseConfigured()) {
+      const { data: dbUsers } = await client.from('users').select('*');
+      if (dbUsers && Array.isArray(dbUsers)) {
+        for (const u of dbUsers) {
+          if (u.id && u.email) {
+            const isOfficialAdmin = u.email.toLowerCase() === SINGLE_ADMIN_EMAIL || u.id === SINGLE_ADMIN_ID;
+            localUserStore.set(u.id, {
+              userId: u.id,
+              email: u.email,
+              name: u.name || 'Student',
+              role: isOfficialAdmin ? 'admin' : (u.role === 'admin' ? 'student' : u.role || 'student'),
+              isSuspended: Boolean(u.is_suspended)
+            });
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // Non-fatal if Supabase is offline
+  }
+
   // Return all users, ensuring only the single official admin has admin role
   const users = Array.from(localUserStore.values()).map(u => {
     if (u.role === 'admin' && (u.userId !== SINGLE_ADMIN_ID || u.email.toLowerCase() !== SINGLE_ADMIN_EMAIL)) {

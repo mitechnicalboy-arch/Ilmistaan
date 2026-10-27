@@ -10,7 +10,9 @@ import {
   CheckCircle2, 
   Loader2, 
   ShieldCheck,
-  Server
+  Server,
+  Activity,
+  Terminal
 } from 'lucide-react';
 import { useAcademic } from '../../context/AcademicContext';
 import { 
@@ -19,6 +21,10 @@ import {
   SUPABASE_SQL_SCHEMA, 
   SupabaseTransferReport 
 } from '../../services/supabase';
+import { 
+  runFirebaseAuthSupabaseDiagnostics, 
+  DiagnosticResult 
+} from '../../services/authDiagnostics';
 
 interface SupabaseTransferModalProps {
   isOpen: boolean;
@@ -40,7 +46,22 @@ export const SupabaseTransferModal: React.FC<SupabaseTransferModalProps> = ({ is
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferReport, setTransferReport] = useState<SupabaseTransferReport | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'sql' | 'status'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sql' | 'status' | 'diagnostics'>('overview');
+  const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
+  const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
+
+  const handleRunDiagnostics = async () => {
+    setIsRunningDiagnostics(true);
+    try {
+      const diag = await runFirebaseAuthSupabaseDiagnostics();
+      setDiagnosticResult(diag);
+      setActiveTab('diagnostics');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsRunningDiagnostics(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -167,6 +188,23 @@ export const SupabaseTransferModal: React.FC<SupabaseTransferModalProps> = ({ is
               Migration Results
             </button>
           )}
+          <button
+            onClick={() => {
+              if (!diagnosticResult) {
+                handleRunDiagnostics();
+              } else {
+                setActiveTab('diagnostics');
+              }
+            }}
+            className={`pb-2.5 border-b-2 px-1 transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'diagnostics'
+                ? 'border-emerald-600 text-emerald-800 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Auth & Header Diagnostics</span>
+          </button>
         </div>
 
         {/* Modal Content */}
@@ -273,6 +311,19 @@ export const SupabaseTransferModal: React.FC<SupabaseTransferModalProps> = ({ is
                     {copiedSql ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-500" />}
                     <span>{copiedSql ? 'SQL Copied!' : 'Copy SQL Schema'}</span>
                   </button>
+
+                  <button
+                    onClick={handleRunDiagnostics}
+                    disabled={isRunningDiagnostics}
+                    className="w-full sm:w-auto px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    {isRunningDiagnostics ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
+                    ) : (
+                      <Activity className="w-4 h-4 text-emerald-700" />
+                    )}
+                    <span>Run Auth Diagnostics</span>
+                  </button>
                 </div>
               </div>
             </>
@@ -338,6 +389,118 @@ export const SupabaseTransferModal: React.FC<SupabaseTransferModalProps> = ({ is
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'diagnostics' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                    <span>Firebase Auth & Supabase Authorization Diagnostics</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Live verification of Firebase Auth state, token extraction, and Authorization header passing.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRunDiagnostics}
+                  disabled={isRunningDiagnostics}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {isRunningDiagnostics ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Terminal className="w-3.5 h-3.5" />}
+                  <span>{isRunningDiagnostics ? 'Running...' : 'Re-Run Diagnostics'}</span>
+                </button>
+              </div>
+
+              {diagnosticResult ? (
+                <div className="space-y-3">
+                  {/* Status Banner */}
+                  <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+                    diagnosticResult.liveProbe.success
+                      ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                      : 'bg-amber-50/90 border-amber-200 text-amber-950'
+                  }`}>
+                    {diagnosticResult.liveProbe.success ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-1">
+                      <div className="font-bold text-xs">
+                        {diagnosticResult.liveProbe.success
+                          ? 'Verification Passed: No "Server Unreachable" Errors'
+                          : 'Probe Notice: Live Database Verification Feedback'}
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-slate-700">
+                        {diagnosticResult.liveProbe.message}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Diagnostic Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Firebase Auth Card */}
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <div className="font-bold text-xs text-slate-900 border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                        <span>1. Firebase Auth State</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-mono rounded font-bold ${
+                          diagnosticResult.firebaseAuth.isUserSignedIn ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {diagnosticResult.firebaseAuth.isUserSignedIn ? 'SIGNED IN' : 'SIGNED OUT'}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] space-y-1 text-slate-600">
+                        <div><strong className="text-slate-800">User UID:</strong> {diagnosticResult.firebaseAuth.uid || 'None'}</div>
+                        <div><strong className="text-slate-800">Email:</strong> {diagnosticResult.firebaseAuth.email || 'None'}</div>
+                        <div><strong className="text-slate-800">ID Token Fetched:</strong> {diagnosticResult.firebaseAuth.tokenRetrievalSuccess ? '✅ Yes' : '❌ No'}</div>
+                        {diagnosticResult.firebaseAuth.tokenPreview && (
+                          <div><strong className="text-slate-800">Token Preview:</strong> <span className="text-emerald-700">{diagnosticResult.firebaseAuth.tokenPreview}</span></div>
+                        )}
+                        {diagnosticResult.firebaseAuth.tokenExpiry && (
+                          <div><strong className="text-slate-800">Token Expiry:</strong> {diagnosticResult.firebaseAuth.tokenExpiry}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Supabase Client Auth Header Card */}
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <div className="font-bold text-xs text-slate-900 border-b border-slate-200 pb-1.5 flex items-center justify-between">
+                        <span>2. Supabase Header Configuration</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-mono rounded font-bold ${
+                          diagnosticResult.supabaseClient.authHeaderConfigured ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {diagnosticResult.supabaseClient.authHeaderConfigured ? 'AUTH HEADER READY' : 'ANON READY'}
+                        </span>
+                      </div>
+                      <div className="font-mono text-[11px] space-y-1 text-slate-600">
+                        <div><strong className="text-slate-800">Configured:</strong> {diagnosticResult.supabaseClient.isConfigured ? '✅ Yes' : '❌ No'}</div>
+                        <div><strong className="text-slate-800">Client Initialized:</strong> {diagnosticResult.supabaseClient.clientInitialized ? '✅ Yes' : '❌ No'}</div>
+                        <div><strong className="text-slate-800">Authorization:</strong> <span className="text-emerald-700">{diagnosticResult.supabaseClient.authHeaderPreview}</span></div>
+                        <div><strong className="text-slate-800">x-user-id:</strong> {diagnosticResult.supabaseClient.customHeaders['x-user-id']}</div>
+                        <div><strong className="text-slate-800">x-user-email:</strong> {diagnosticResult.supabaseClient.customHeaders['x-user-email']}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live JSON Diagnostic Payload */}
+                  <div className="p-3 bg-slate-900 text-slate-200 rounded-xl space-y-1.5 font-mono text-[10px]">
+                    <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1">
+                      <span>CONSOLE LOG DIAGNOSTIC PAYLOAD</span>
+                      <span>{diagnosticResult.timestamp}</span>
+                    </div>
+                    <pre className="overflow-x-auto max-h-48 text-emerald-400">
+                      {JSON.stringify(diagnosticResult, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-slate-400">
+                  <Activity className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <p>Click "Re-Run Diagnostics" to execute a live probe.</p>
+                </div>
+              )}
             </div>
           )}
         </div>

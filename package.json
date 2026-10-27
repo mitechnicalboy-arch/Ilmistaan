@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "test:security": "tsx src/server/tests/runTests.ts",
+    "diagnose:auth": "tsx scripts/diagnoseAuthSupabase.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

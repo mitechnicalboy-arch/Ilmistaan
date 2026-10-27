@@ -538,6 +538,12 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_user', JSON.stringify(profile));
         setCurrentUser(profile);
 
+        // Cache Firebase ID Token for authenticated Supabase authorization header
+        try {
+          const idToken = await fbUser.getIdToken();
+          localStorage.setItem('unidiary_fb_id_token', idToken);
+        } catch (_) {}
+
         // Ensure profile exists in Firestore users collection
         try {
           await setDoc(doc(db, 'users', fbUser.uid), {
@@ -549,6 +555,15 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
             timezone: profile.timezone,
             createdAt: profile.createdAt
           }, { merge: true });
+
+          if (isAdmin) {
+            await setDoc(doc(db, 'admins', fbUser.uid), {
+              userId: fbUser.uid,
+              email: cleanEmail,
+              role: 'admin',
+              grantedAt: new Date().toISOString()
+            }, { merge: true });
+          }
         } catch (_) {}
 
         // Add to local allUsers state
@@ -560,7 +575,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
           return prev.map(u => (u.userId === profile.userId || u.email.toLowerCase() === profile.email.toLowerCase()) ? { ...u, ...profile } : u);
         });
 
-        // If logged in as administrator, synchronize directory from Firestore & server API
+        // If logged in as administrator, synchronize directory from Firestore, Supabase & server API
         if (isAdmin) {
           try {
             const usersSnap = await getDocs(collection(db, 'users'));
@@ -584,7 +599,6 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
 
               setAllUsers(prev => {
                 const map = new Map<string, UserProfile>();
-                // Always have Single Admin
                 map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
                 prev.forEach(u => map.set(u.userId, u));
                 loadedUsers.forEach(u => map.set(u.userId, u));
@@ -593,6 +607,36 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
             }
           } catch (_) {
             // Non-fatal if offline
+          }
+
+          // Also synchronize from Supabase users table
+          const supaClient = getSupabaseClient(fbUser.uid, cleanEmail);
+          if (supaClient && isSupabaseConfigured()) {
+            try {
+              const { data: supaUsers } = await supaClient.from('users').select('*');
+              if (supaUsers && Array.isArray(supaUsers)) {
+                setAllUsers(prev => {
+                  const map = new Map<string, UserProfile>();
+                  map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+                  prev.forEach(u => map.set(u.userId, u));
+                  supaUsers.forEach((u: any) => {
+                    if (u.id && u.email) {
+                      const isOfficialAdmin = u.email.toLowerCase() === 'muhammadirteza2024@gmail.com' || u.id === 'usr_admin_irteza';
+                      map.set(u.id, {
+                        userId: u.id,
+                        email: u.email,
+                        name: u.name || 'Student',
+                        role: isOfficialAdmin ? 'admin' : (u.role === 'admin' ? 'student' : u.role || 'student'),
+                        isSuspended: Boolean(u.is_suspended),
+                        timezone: u.timezone || 'Asia/Karachi (GMT+5)',
+                        createdAt: u.created_at || new Date().toISOString()
+                      });
+                    }
+                  });
+                  return Array.from(map.values());
+                });
+              }
+            } catch (_) {}
           }
 
           // Also check server /api/admin/users if full-stack server is active
@@ -633,7 +677,7 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
     return () => unsubscribe();
   }, []);
 
-  // Dedicated function to refresh all users across Firestore, Server API, and LocalStorage
+  // Dedicated function to refresh all users across Firestore, Supabase, Server API, and LocalStorage
   const refreshUsers = useCallback(async () => {
     // 1. Fetch from Firestore if user has admin permissions
     try {
@@ -656,17 +700,49 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
           }
         });
 
-        setAllUsers(prev => {
-          const map = new Map<string, UserProfile>();
-          map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
-          prev.forEach(u => map.set(u.userId, u));
-          loaded.forEach(u => map.set(u.userId, u));
-          return Array.from(map.values());
-        });
+        if (loaded.length > 0) {
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+            prev.forEach(u => map.set(u.userId, u));
+            loaded.forEach(u => map.set(u.userId, u));
+            return Array.from(map.values());
+          });
+        }
       }
     } catch (_) {}
 
-    // 2. Fetch from backend /api/admin/users if full-stack server is running
+    // 2. Fetch from Supabase users table
+    const supaClient = getSupabaseClient(currentUser?.userId, currentUser?.email);
+    if (supaClient && isSupabaseConfigured()) {
+      try {
+        const { data: supaUsers } = await supaClient.from('users').select('*');
+        if (supaUsers && Array.isArray(supaUsers) && supaUsers.length > 0) {
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+            prev.forEach(u => map.set(u.userId, u));
+            supaUsers.forEach((u: any) => {
+              if (u.id && u.email) {
+                const isOfficialAdmin = u.email.toLowerCase() === 'muhammadirteza2024@gmail.com' || u.id === 'usr_admin_irteza';
+                map.set(u.id, {
+                  userId: u.id,
+                  email: u.email,
+                  name: u.name || 'Student',
+                  role: isOfficialAdmin ? 'admin' : (u.role === 'admin' ? 'student' : u.role || 'student'),
+                  isSuspended: Boolean(u.is_suspended),
+                  timezone: u.timezone || 'Asia/Karachi (GMT+5)',
+                  createdAt: u.created_at || new Date().toISOString()
+                });
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fetch from backend /api/admin/users if full-stack server is running
     try {
       const token = localStorage.getItem('unidiary_token');
       const uid = currentUser?.userId || auth.currentUser?.uid || 'usr_admin_irteza';
@@ -700,7 +776,53 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         }
       }
     } catch (_) {}
+
+    // 4. Preserve any accounts cached in localStorage
+    try {
+      const localSaved = localStorage.getItem('unidiary_all_users');
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+            prev.forEach(u => map.set(u.userId, u));
+            parsed.forEach((u: any) => {
+              if (u.userId && u.email && !map.has(u.userId)) {
+                map.set(u.userId, u);
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+      }
+    } catch (_) {}
   }, [currentUser]);
+
+  // Tab synchronization for cross-window account registration
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'unidiary_all_users' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setAllUsers(prev => {
+              const map = new Map<string, UserProfile>();
+              map.set(SINGLE_ADMIN_ACCOUNT.userId, SINGLE_ADMIN_ACCOUNT);
+              prev.forEach(u => map.set(u.userId, u));
+              parsed.forEach((u: any) => {
+                if (u.userId && u.email) map.set(u.userId, u);
+              });
+              return Array.from(map.values());
+            });
+          }
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Real-time Firestore onSnapshot listener for users collection when user is Admin
   useEffect(() => {
@@ -942,7 +1064,14 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_user', JSON.stringify(profile));
         setCurrentUser(profile);
         if (isAdmin) {
-          setAllUsers([profile]);
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            map.set(profile.userId, profile);
+            prev.forEach(u => {
+              if (!map.has(u.userId)) map.set(u.userId, u);
+            });
+            return Array.from(map.values());
+          });
         }
 
         // Sync profile to Supabase database
@@ -978,7 +1107,14 @@ export const AcademicProvider: React.FC<{ children: ReactNode }> = ({ children }
         localStorage.setItem('unidiary_token', token);
         localStorage.setItem('unidiary_user', JSON.stringify(adminProfile));
         setCurrentUser(adminProfile);
-        setAllUsers([adminProfile]);
+        setAllUsers(prev => {
+          const map = new Map<string, UserProfile>();
+          map.set(adminProfile.userId, adminProfile);
+          prev.forEach(u => {
+            if (!map.has(u.userId)) map.set(u.userId, u);
+          });
+          return Array.from(map.values());
+        });
 
         const client = getSupabaseClient(adminProfile.userId, adminProfile.email);
         if (client && isSupabaseConfigured()) {

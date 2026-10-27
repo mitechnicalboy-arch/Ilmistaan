@@ -11,8 +11,9 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '0.0.0.0';
+  // AI Studio environment constraint: Dev server must run on port 3000
+  const PORT = 3000;
+  const HOST = '0.0.0.0';
 
   app.use(express.json());
 
